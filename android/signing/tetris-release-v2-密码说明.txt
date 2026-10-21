@@ -1,0 +1,8 @@
+tetris-release-v2.jks 签名信息（2026-10-19 创建）
+=================================================
+- keystore : tetris-release-v2.jks
+- alias    : tetris
+- 密码     : NVdCjcMd0EP6lyaNbvfn  （store 和 key 同密码）
+- 有效期   : 10000 天，RSA 2048
+- 背景     : 旧库 tetris-release.jks 密码丢失（试过 LYP82NDLF 及大小写变体/常见字典均不符），旧库保留未删
+- 注意     : v2 签名与旧版不兼容，手机上覆盖安装 v1.3 前必须先卸载 org.qtproject.tetris
