@@ -86,7 +86,17 @@ ApplicationWindow {
     onBgChoiceChanged: bgFallback = false
     property real bgPhase: 0                    // 背景漂移/呼吸的相位（低频 Timer 驱动）
     property bool showBgPicker: false
-    property string bgUnlockToastText: ""
+    property bool showStats: false
+    // 个人战绩（永久累计，settingsVersion 清档时不重置）
+    property int totalGames: 0
+    property int totalLinesAll: 0
+    property int totalSecondsAll: 0
+    property int maxComboAll: 0
+    // 主题环境粒子：随主题切换颜色与运动方向
+    readonly property color ambientColor: ["#ffe9a8","#eaf6ff","#ffd98a","#ffb7d5","#eaf6ff","#d8ff9a","#eaf6ff","#ffffff","#ffb46e","#c8b8ff","#9fc8ff","#ffc8dc"][bgThemeIndex(bgChoice)]
+    readonly property bool ambientRise: [false,false,true,false,false,true,false,false,false,false,false,true][bgThemeIndex(bgChoice)]
+    readonly property int ambientSpeed: [26,22,34,40,70,30,26,20,46,20,32,18][bgThemeIndex(bgChoice)]
+    property string unlockCelebrateName: ""     // 解锁成就演出主题名
     // 背景主题表：need = 单局分数门槛（过线即永久收藏）；文件 = qrc:/bgN.jpg（N=序号，缺文件的卡片自动隐藏）
     readonly property var bgThemes: [
         { id: "t01", name: "晴日草原", need: 0 },
@@ -123,8 +133,11 @@ ApplicationWindow {
         }
         if (latest !== "") {
             savedUnlocks = savedUnlocks.slice()  // 重新赋值触发 Settings 持久化
-            bgUnlockToastText = "解锁背景 · " + latest
-            bgUnlockToastTimer.restart()
+            // 成就演出：背景渐变 + 星星扩散 + 主题名弹出
+            unlockCelebrateName = "解锁背景 · " + latest
+            unlockCelebrate.visible = true
+            unlockCelebrateAnim.restart()
+            sparkBurst.burst(46, gameBoard.width / 2, gameBoard.height * 0.3)
         }
     }
     property var bagQueue: []           // 7-bag 随机袋余量
@@ -132,6 +145,7 @@ ApplicationWindow {
     property bool canHold: true         // 每个方块落地前只能 Hold 一次
     property bool b2bActive: false      // Back-to-Back：上次是消 4 行时保持
     property int maxCombo: 0            // 本局最大连击
+    readonly property bool turboMode: gameLoop.interval <= minDropInterval  // 下落已到安全下限=极速状态
     property int playSeconds: 0         // 本局用时（秒）
     property int lockResets: 0          // 锁定延迟已被移动/旋转刷新的次数（有上限）
     property int lowestRow: 0           // 当前方块到达过的最低行（下到新低行时重置 lockResets）
@@ -148,6 +162,8 @@ ApplicationWindow {
     property var lockFlashes: []        // 落锁闪光 {col,row}
     property var afterimages: []        // 移动/旋转残影 {cells:[{c,r}],color,ts}
     property var dropStreaks: []        // 到底速度线 {x,y0,y1,color}
+    property var scoreFloats: []        // 降飘字 {x,y,text,color,born}
+    property real lastFloatAt: 0        // 软降飘字限速
     property var lineClearFragments: [] // 消行碎片 {col,row,color}
     readonly property bool dangerActive: isDanger()
 
@@ -202,6 +218,10 @@ ApplicationWindow {
         property alias savedSettingsVersionValue: root.savedSettingsVersion
         property alias bgChoiceValue: root.bgChoice
         property alias savedUnlocksValue: root.savedUnlocks
+        property alias totalGamesValue: root.totalGames
+        property alias totalLinesAllValue: root.totalLinesAll
+        property alias totalSecondsAllValue: root.totalSecondsAll
+        property alias maxComboAllValue: root.maxComboAll
     }
 
     // 游戏主定时器
@@ -226,12 +246,6 @@ ApplicationWindow {
 
     Timer { id: lockFlashTimer; interval: 320; onTriggered: lockFlashes = [] }
 
-    Timer {
-        id: bgUnlockToastTimer
-        interval: 2200
-        onTriggered: bgUnlockToastText = ""
-    }
-
     Timer { id: rowFlashTimer; interval: 260; onTriggered: rowFlashes = [] }
 
     Timer {
@@ -247,6 +261,28 @@ ApplicationWindow {
     }
 
     Timer { id: streakTimer; interval: 240; onTriggered: dropStreaks = [] }
+
+    Timer {
+        id: scoreFloatTimer
+        interval: 700
+        repeat: true
+        running: scoreFloats.length > 0
+        onTriggered: {
+            var now = Date.now()
+            var kept = []
+            for (var i = 0; i < scoreFloats.length; i++)
+                if (now - scoreFloats[i].born < 620) kept.push(scoreFloats[i])
+            scoreFloats = kept
+        }
+    }
+
+    function spawnScoreFloat(x, y, text) {
+        var now = Date.now()
+        if (now - lastFloatAt < 110) return   // 连续软降时限速，避免刷屏
+        lastFloatAt = now
+        scoreFloats.push({ x: x, y: y, text: text, born: now })
+        if (scoreFloats.length > 6) scoreFloats.shift()
+    }
 
     // 落块动画结束：撤下落层、恢复落点格显示
     Timer {
@@ -1058,7 +1094,7 @@ ApplicationWindow {
             lockDelayTimer.restart()
         }
     }
-    // 手动软降：+1 分/格（直接进显示分，立即可见）
+    // 手动软降：+1 分/格（直接进显示分，立即可见），伴随 +1 小飘字
     function softDropStep() {
         if (isGameOver || isPaused) return
         if (!checkCollision(posX, posY + 1, currentShape)) {
@@ -1070,6 +1106,7 @@ ApplicationWindow {
                 lowestRow = posY
                 lockResets = 0
             }
+            spawnScoreFloat((posX + currentShape[0].length / 2) * blockSize - 10, posY * blockSize, "+1")
             lockDelayTimer.stop()
         }
     }
@@ -1094,6 +1131,7 @@ ApplicationWindow {
         score += rows * 2
         if (score > bestScore) bestScore = score
         var bottomY = (posY + currentShape.length) * blockSize
+        if (rows > 0) spawnScoreFloat((posX + currentShape[0].length / 2) * blockSize - 14, bottomY - blockSize * 1.6, "+" + rows * 2)
         for (var s = 0; s < streaks.length; s++)
             streaks[s].y1 = bottomY
         dropStreaks = streaks
@@ -1155,6 +1193,11 @@ ApplicationWindow {
         lockDelayTimer.stop()
         score = scoreTarget
         if (score > bestScore) bestScore = score
+        // 永久累计战绩（settingsVersion 清档机制不清这四项之外的本局数据）
+        totalGames++
+        totalLinesAll += totalClearedLines
+        totalSecondsAll += playSeconds
+        maxComboAll = Math.max(maxComboAll, maxCombo)
         vibe(220)
     }
 
@@ -1210,6 +1253,43 @@ ApplicationWindow {
         }
     }
 
+    // 主题环境粒子（随主题换色/换向；低密度漂浮，暂停/后台自动停）
+    Item {
+        anchors.fill: parent
+        z: 8
+
+        ParticleSystem { id: ambientSys }
+
+        ItemParticle {
+            system: ambientSys
+            fade: true
+            delegate: Rectangle {
+                width: 6; height: 6; radius: 3
+                color: ambientColor
+                opacity: 0.55
+            }
+        }
+
+        Emitter {
+            id: ambientEmitter
+            system: ambientSys
+            width: parent.width
+            height: 8
+            x: 0
+            y: ambientRise ? parent.height - 8 : 0
+            enabled: !isPaused && Qt.application.state === Qt.ApplicationActive
+            emitRate: 4
+            lifeSpan: 9000
+            size: 6; endSize: 3
+            velocity: AngleDirection {
+                angle: ambientRise ? 270 : 90
+                angleVariation: 12
+                magnitude: ambientSpeed
+                magnitudeVariation: 8
+            }
+        }
+    }
+
     // 帧泵：软件渲染下若暂停后无任何动画驱动，暂停面板可能永远不被绘制上屏；
     // 用角落 2x2 微件的透明度振荡持续制造微小脏区冲刷帧（成本可忽略）
     Rectangle {
@@ -1224,18 +1304,56 @@ ApplicationWindow {
         }
     }
 
-    // 背景解锁提示
-    Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        y: 90
-        text: bgUnlockToastText
-        visible: bgUnlockToastText !== ""
-        color: "#8DE0B2"
-        font.pixelSize: 18
-        font.bold: true
-        style: Text.Outline
-        styleColor: "#000000"
-        z: 50
+    // 解锁成就演出（轻遮罩 + 渐变 + 主题名弹出；星星由 fxSystem 火花承担）
+    Rectangle {
+        id: unlockCelebrate
+        anchors.fill: parent
+        visible: unlockCelebrateName !== ""
+        color: "#48000000"
+        z: 55
+
+        Rectangle {
+            id: unlockGradient
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#66ffd95a" }
+                GradientStop { position: 1.0; color: "#10ffd95a" }
+            }
+            opacity: 0.7
+        }
+
+        Text {
+            id: unlockCelebrateLabel
+            anchors.horizontalCenter: parent.horizontalCenter
+            y: parent.height * 0.16
+            text: unlockCelebrateName === "" ? "" : "解锁背景\n" + unlockCelebrateName
+            color: "#ffd95a"
+            font.pixelSize: 26
+            font.bold: true
+            horizontalAlignment: Text.AlignHCenter
+            style: Text.Outline
+            styleColor: "#000000"
+            transformOrigin: Item.Center
+            scale: 0.7
+            opacity: 0
+        }
+    }
+
+    SequentialAnimation {
+        id: unlockCelebrateAnim
+        running: false
+
+        ParallelAnimation {
+            NumberAnimation { target: unlockCelebrateLabel; property: "scale"; from: 0.6; to: 1.15; duration: 420; easing.type: Easing.OutBack }
+            NumberAnimation { target: unlockCelebrateLabel; property: "opacity"; from: 0; to: 1; duration: 250 }
+            NumberAnimation { target: unlockGradient; property: "opacity"; from: 0.7; to: 0.15; duration: 1500 }
+        }
+        PauseAnimation { duration: 1100 }
+        ParallelAnimation {
+            NumberAnimation { target: unlockCelebrateLabel; property: "opacity"; to: 0; duration: 450; easing.type: Easing.InQuad }
+            NumberAnimation { target: unlockGradient; property: "opacity"; to: 0; duration: 450 }
+        }
+        ScriptAction { script: unlockCelebrate.visible = false }
     }
 
     Item {
@@ -1526,7 +1644,7 @@ ApplicationWindow {
             anchors.horizontalCenter: parent.horizontalCenter
             clip: true
             color: "#18232B" // 游戏区域深蓝灰（治愈系配色规范）
-            border.color: "white"
+            border.color: turboMode ? "#ff4444" : "white"
             border.width: 2
             transform: [
                 Translate { x: root.shakeOffsetX; y: root.shakeOffsetY },
@@ -1537,6 +1655,20 @@ ApplicationWindow {
                     yScale: root.boardPunch
                 }
             ]
+
+            // 极速状态徽标（下落间隔到达安全下限时出现）
+            Text {
+                visible: turboMode && !isGameOver
+                anchors.top: parent.top
+                anchors.right: parent.right
+                anchors.margins: 6
+                text: "⚡极速"
+                color: "#ff6666"
+                font.pixelSize: 13
+                font.bold: true
+                style: Text.Outline
+                styleColor: "#000000"
+            }
 
             // 1. 静态棋盘网格（不参与消行回弹）
             Repeater {
@@ -1892,21 +2024,34 @@ ApplicationWindow {
                 velocity: AngleDirection { angle: 270; angleVariation: 65; magnitude: 95; magnitudeVariation: 60 }
             }
 
-            // 13. 连击燃烧边框（B2B 时金色）
+            // 13. 连击燃烧边框（分级：2-3 橙 / 4-6 红橙 / 7+ 烈焰红；B2B 时金色优先）
             Rectangle {
                 anchors.fill: parent
                 color: "transparent"
                 radius: 2
-                border.width: 4
-                border.color: b2bActive ? "#ffd95a" : "#ff7a18"
+                border.width: comboStreak >= 7 ? 8 : comboStreak >= 4 ? 6 : 4
+                border.color: {
+                    if (b2bActive) return "#ffd95a"
+                    if (comboStreak >= 7) return "#ff2a2a"
+                    if (comboStreak >= 4) return "#ff5a2a"
+                    return "#ff7a18"
+                }
                 visible: comboStreak >= 2 || b2bActive
                 opacity: 0.6
 
                 SequentialAnimation on opacity {
                     running: (comboStreak >= 2 || b2bActive) && !isPaused
                     loops: Animation.Infinite
-                    NumberAnimation { to: 0.95; duration: 420; easing.type: Easing.OutQuad }
-                    NumberAnimation { to: 0.35; duration: 420; easing.type: Easing.InQuad }
+                    NumberAnimation {
+                        to: 0.95
+                        duration: comboStreak >= 7 ? 160 : comboStreak >= 4 ? 260 : 420
+                        easing.type: Easing.OutQuad
+                    }
+                    NumberAnimation {
+                        to: 0.35
+                        duration: comboStreak >= 7 ? 160 : comboStreak >= 4 ? 260 : 420
+                        easing.type: Easing.InQuad
+                    }
                 }
             }
 
@@ -2498,6 +2643,76 @@ ApplicationWindow {
     }
 
     // Tetris 全屏白闪
+    // 个人战绩页（菜单内「战绩」打开；点外部关闭）
+    Rectangle {
+        anchors.fill: parent
+        visible: showStats
+        color: "#B0000000"
+        z: 47
+
+        MouseArea { anchors.fill: parent; onClicked: showStats = false }
+
+        Rectangle {
+            width: 312
+            height: 380
+            radius: 14
+            color: "#2a2a2a"
+            border.color: "#666666"
+            border.width: 1
+            anchors.centerIn: parent
+
+            Column {
+                anchors.centerIn: parent
+                spacing: 12
+                width: 260
+
+                Text {
+                    text: "📊 个人战绩"
+                    color: "#ffd95a"
+                    font.pixelSize: 19
+                    font.bold: true
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Repeater {
+                    model: [
+                        ["历史最高", bestScore + " 分"],
+                        ["累计局数", totalGames],
+                        ["累计消行", totalLinesAll],
+                        ["最大连击", maxComboAll > 0 ? "x" + maxComboAll : "—"],
+                        ["累计时长", formatPlayTime(totalSecondsAll)]
+                    ]
+                    delegate: Row {
+                        width: parent.width
+
+                        Text {
+                            text: modelData[0]
+                            color: "#B9C4C8"
+                            font.pixelSize: 14
+                            width: 140
+                        }
+
+                        Text {
+                            text: modelData[1]
+                            color: "#F5F1E8"
+                            font.pixelSize: 14
+                            font.bold: true
+                            horizontalAlignment: Text.AlignRight
+                            width: 110
+                        }
+                    }
+                }
+
+                Button {
+                    text: "关闭"
+                    width: 120
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: showStats = false
+                }
+            }
+        }
+    }
+
     Rectangle {
         id: flashOverlay
         anchors.fill: parent
@@ -2551,7 +2766,7 @@ ApplicationWindow {
         MouseArea {
             anchors.fill: parent
             onClicked: {
-                if (showLeaderboard || showBgPicker) return
+                if (showLeaderboard || showBgPicker || showStats) return
                 if (isGameOver) isPaused = false
                 else resumeGame()
             }
@@ -2588,10 +2803,9 @@ ApplicationWindow {
                     anchors.horizontalCenter: parent.horizontalCenter
 
                     Button {
-                        text: "继续"
+                        text: "战绩"
                         width: 84
-                        visible: !isGameOver
-                        onClicked: resumeGame()
+                        onClicked: showStats = true
                     }
 
                     Button {
