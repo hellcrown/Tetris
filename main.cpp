@@ -468,6 +468,11 @@ static qint64 s_lastNoteMs = 0;       // noteFrame 节流
 
 int main(int argc, char *argv[])
 {
+    // QML Settings 的应用标识：不设置会导致 QSettings 初始化失败（Status 1），
+    // 落入不可靠的回退存储——安卓上实测会把累计战绩等后写键值丢掉。必须最先设置。
+    QCoreApplication::setOrganizationName(QStringLiteral("qtproject"));
+    QCoreApplication::setOrganizationDomain(QStringLiteral("qtproject.org"));
+    QCoreApplication::setApplicationName(QStringLiteral("Tetris"));
 #ifdef Q_OS_ANDROID
     // 全设备统一默认 GLES 渲染：实测各机型 GPU 路径都能正常打开与游玩；
     // 软件渲染在小米（QBackingStoreRhiSupport EGL 探测死循环）与华为鸿蒙 NEXT
@@ -618,6 +623,40 @@ int main(int argc, char *argv[])
     }
 
     QQmlApplicationEngine engine;
+    // 一次性迁移：修复前 QML Settings 初始化失败，落到按「组件 URL」派生的回退 ini
+    // （AppDataLocation/.settings/）——每次补丁换内容都会生成新文件=用户存档清零。
+    // 扫描全部旧回退 ini，取 bestScoreValue 最高（进度最远）的一份并入正规存储。
+    {
+        QSettings newStore;   // org/app 已设置：正规、可靠的持久化
+        // 迁移代数：v1=空组织ini尝试（无效果），v2=.settings 回退扫描（真正迁移）
+        if (newStore.value(QStringLiteral("migration/v1"), 0).toInt() < 2) {
+            const QString dir = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation)
+                                + QStringLiteral("/.settings");
+            QString bestFile;
+            int bestScore = -1;
+            const QFileInfoList inis = QDir(dir).entryInfoList(
+                QStringList() << QStringLiteral("*.ini"), QDir::Files);
+            for (const QFileInfo &fi : inis) {
+                QSettings s(fi.absoluteFilePath(), QSettings::IniFormat);
+                const int bs = s.value(QStringLiteral("bestScoreValue"), -1).toInt();
+                if (bs > bestScore) {
+                    bestScore = bs;
+                    bestFile = fi.absoluteFilePath();
+                }
+            }
+            if (!bestFile.isEmpty()) {
+                QSettings s(bestFile, QSettings::IniFormat);
+                const QStringList keys = s.allKeys();
+                for (const QString &k : keys)
+                    newStore.setValue(k, s.value(k));
+                qInfo() << "[Settings] 迁移回退存档:" << bestFile << "keys:" << keys.size();
+            } else {
+                qInfo() << "[Settings] 无旧回退存档可迁移 dir:" << dir;
+            }
+            newStore.setValue(QStringLiteral("migration/v1"), 2);
+            newStore.sync();
+        }
+    }
     NativeVibe vibe;
     engine.rootContext()->setContextProperty("NativeVibe", &vibe);
     // 进程级单例（有意不销毁）：退出时若仍有在途请求，Java 回调也不会命中悬垂对象
