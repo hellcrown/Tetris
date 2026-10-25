@@ -134,6 +134,7 @@ ApplicationWindow {
     property int tetrisCount: 0           // 本局四行消除次数（结果徽章）
     property int b2bCount: 0              // 本局 B2B 次数（结果徽章）
     property var gameBadges: []           // 本局已获过程徽章 id
+    property var savedBadges: []          // 永久徽章成就 [{id, n, ts}]：解锁一次终身保留，n=累计次数
     property int cleanClearStreak: 0      // 连续未入危险区（顶部4行）的消行次数
     property int newUnlocks: 0            // 本局新解锁背景数（结算统计格）
     property bool recapCompact: false     // 结算页折叠态（点头部切换）
@@ -299,6 +300,7 @@ ApplicationWindow {
         property alias savedSettingsVersionValue: root.savedSettingsVersion
         property alias bgChoiceValue: root.bgChoice
         property alias savedUnlocksValue: root.savedUnlocks
+        property alias savedBadgesValue: root.savedBadges
         property alias totalGamesValue: root.totalGames
         property alias totalLinesAllValue: root.totalLinesAll
         property alias totalSecondsAllValue: root.totalSecondsAll
@@ -791,7 +793,7 @@ ApplicationWindow {
                     Qt.quit()
                 }
             } else if (demoScene === "recap") {
-                // 结算页验收：预置战绩与徽章 → 展开态 / 折叠态
+                // 结算页验收：预置战绩与徽章 → 展开态 / 折叠态 / 战绩页徽章成就区
                 if (demoStep === 0) {
                     score = 4136
                     scoreTarget = 4820
@@ -801,11 +803,20 @@ ApplicationWindow {
                     b2bCount = 1
                     newUnlocks = 1
                     gameBadges = ["clutch", "precise"]
+                    savedBadges = [
+                        { id: "clutch", n: 12, ts: 0 },
+                        { id: "flow", n: 3, ts: 0 },
+                        { id: "precise", n: 4, ts: 0 }
+                    ]
                     isGameOver = true
                     shoot("recap")
                 } else if (demoStep === 1) {
                     recapCompact = true
                     shoot("recap-compact")
+                } else if (demoStep === 2) {
+                    recapCompact = false
+                    showStats = true
+                    shoot("stats-badges")
                 } else {
                     demoTimer.stop()
                     Qt.quit()
@@ -963,15 +974,30 @@ ApplicationWindow {
 
     // ---- 阶段5：过程徽章 + 小徽章 toast（局内里程碑复用同一 toast）----
     readonly property var badgeDefs: ({
-        "clutch":  { icon: "🛡️", name: "极限救场" },
-        "flow":    { icon: "🌊", name: "流畅操作" },
-        "precise": { icon: "🎯", name: "精准落位" }
+        "clutch":  { icon: "🛡️", name: "极限救场", hint: "在危险态（堆叠进入顶部 4 行）完成消行" },
+        "flow":    { icon: "🌊", name: "流畅操作", hint: "连续 6 次消行未进入危险区" },
+        "precise": { icon: "🎯", name: "精准落位", hint: "锁定的方块恰好全部被消去" }
     })
     function earnBadge(id) {
         for (var i = 0; i < gameBadges.length; i++)
             if (gameBadges[i] === id) return
         gameBadges.push(id)
-        showToast(badgeDefs[id].icon, badgeDefs[id].name)
+        // 永久成就：首次解锁终身保留，之后每次达成累计次数（Settings 持久化）
+        var rec = badgeRecord(id)
+        if (rec === null) {
+            savedBadges.push({ id: id, n: 1, ts: Date.now() })
+            showToast(badgeDefs[id].icon, "成就解锁 · " + badgeDefs[id].name)
+        } else {
+            rec.n++
+            showToast(badgeDefs[id].icon, badgeDefs[id].name + " ×" + rec.n)
+        }
+        savedBadges = savedBadges.slice()   // 重新赋值触发 Settings 持久化
+    }
+    function badgeRecord(id) {
+        for (var i = 0; i < savedBadges.length; i++)
+            if (savedBadges[i].id === id)
+                return savedBadges[i]
+        return null
     }
     property string toastIcon: ""
     property string toastText: ""
@@ -3555,7 +3581,7 @@ ApplicationWindow {
 
         Rectangle {
             width: 312
-            height: 380
+            height: statsCol.implicitHeight + 40
             radius: 14
             color: "#2a2a2a"
             border.color: "#666666"
@@ -3563,6 +3589,7 @@ ApplicationWindow {
             anchors.centerIn: parent
 
             Column {
+                id: statsCol
                 anchors.centerIn: parent
                 spacing: 12
                 width: 260
@@ -3600,6 +3627,60 @@ ApplicationWindow {
                             font.bold: true
                             horizontalAlignment: Text.AlignRight
                             width: 110
+                        }
+                    }
+                }
+
+                // 徽章成就（永久解锁制：像成就一样收集，点菜单「战绩」随时回看）
+                Rectangle { width: parent.width; height: 1; color: "#4a4a4a" }
+
+                Text {
+                    text: "🏅 徽章成就"
+                    color: "#ffd95a"
+                    font.pixelSize: 14
+                    font.bold: true
+                }
+
+                Repeater {
+                    model: ["clutch", "flow", "precise"]
+                    delegate: Row {
+                        width: parent.width
+                        spacing: 10
+                        property var bdef: root.badgeDefs[modelData]
+                        property var brec: root.badgeRecord(modelData)
+                        property bool earned: brec !== null
+
+                        Text {
+                            text: bdef.icon
+                            font.pixelSize: 22
+                            opacity: earned ? 1.0 : 0.25
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        Column {
+                            spacing: 1
+                            width: parent.width - 42
+
+                            Row {
+                                spacing: 6
+                                Text {
+                                    text: bdef.name
+                                    color: earned ? "#ffe9a8" : "#777777"
+                                    font.pixelSize: 13
+                                    font.bold: earned
+                                }
+                                Text {
+                                    text: earned ? "×" + brec.n : ""
+                                    color: "#ffd95a"
+                                    font.pixelSize: 12
+                                    font.bold: true
+                                }
+                            }
+                            Text {
+                                text: earned ? ("累计达成 " + brec.n + " 次") : bdef.hint
+                                color: earned ? "#B9C4C8" : "#666666"
+                                font.pixelSize: 11
+                            }
                         }
                     }
                 }
