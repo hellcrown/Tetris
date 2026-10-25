@@ -130,6 +130,15 @@ ApplicationWindow {
         onTriggered: if (pendingUnlock !== "") showUnlockCelebrate(pendingUnlock)
     }
 
+    // ---- 阶段5/6：危险预警 · 徽章 · 里程碑 · 结算回忆 ----
+    property int tetrisCount: 0           // 本局四行消除次数（结果徽章）
+    property int b2bCount: 0              // 本局 B2B 次数（结果徽章）
+    property var gameBadges: []           // 本局已获过程徽章 id
+    property int cleanClearStreak: 0      // 连续未入危险区（顶部4行）的消行次数
+    property int newUnlocks: 0            // 本局新解锁背景数（结算统计格）
+    property bool recapCompact: false     // 结算页折叠态（点头部切换）
+    property int dangerLv: 0              // 危险三段：1=顶部6行有块 2=顶部4行 3=顶部2行（命令式更新）
+
     // 连击能量槽（连击保鲜）：消行回满 100，落锁不消行随时间衰减（满槽 5 秒），
     // 归零连击结束。衰减用 100ms 游戏时钟累计，暂停即停（单调游戏时钟）。
     property real comboEnergy: 0
@@ -193,6 +202,7 @@ ApplicationWindow {
         }
         if (latest !== "") {
             savedUnlocks = savedUnlocks.slice()  // 重新赋值触发 Settings 持久化
+            newUnlocks++                         // 结算页"新收藏"统计格
             if (Date.now() < bigFxUntil)
                 pendingUnlock = latest           // 四消大演出中：解锁演出延迟让位
             else
@@ -204,8 +214,10 @@ ApplicationWindow {
         unlockCelebrateName = "解锁背景 · " + latest
         unlockCelebrate.visible = true
         unlockCelebrateAnim.restart()
-        sparkBurst.burst(Math.round(24 * fxParticleScale),
+        sparkBurst.burst(Math.round(10 * fxParticleScale),
                          gameBoard.width / 2, gameBoard.height * 0.3)
+        dimBurst.burst(Math.round(14 * fxParticleScale),
+                       gameBoard.width / 2, gameBoard.height * 0.3)
     }
     property var bagQueue: []           // 7-bag 随机袋余量
     property int holdShapeIndex: -1     // Hold 区方块索引（-1 为空）
@@ -232,7 +244,7 @@ ApplicationWindow {
     property var scoreFloats: []        // 分数栏飘字 {dx,text,born}
     property real lastFloatAt: 0        // 软降飘字限速
     property var lineClearFragments: [] // 消行碎片 {col,row,color}
-    readonly property bool dangerActive: isDanger()
+    readonly property bool dangerActive: dangerLv > 0   // 兼容旧引用（红框等已改用 dangerLv 分层）
 
     // 立体质感方块：顶部高光 + 底部阴影
     component GameBlock: Rectangle {
@@ -661,11 +673,14 @@ ApplicationWindow {
             grid[y][c] = str[c] === "1" ? colors[c % colors.length] : 0
     }
     function demoSetupTetris() {
-        // 底部 4 行（17-20）留出最右 1 列 → 竖 I 落入即四消（棋盘 12 列 × 21 行）
+        // 底部 4 行（17-20）留出最右 1 列 → 竖 I 直落补齐即四消（棋盘 12 列 × 21 行）
         for (var r = 17; r <= 20; r++) demoFillRow(r, "11111111111")
         demoSetI(11, true)
         comboStreak = 3
+        comboEnergy = 100
         b2bActive = true
+        refreshGrid()
+        refreshDanger()
     }
     function demoSetI(x, vertical) {
         currentShapeIndex = 0
@@ -681,6 +696,8 @@ ApplicationWindow {
         for (var r = 21 - n; r <= 20; r++) demoFillRow(r, gap11)
         demoSetI(cols - 1, true)
         comboStreak = 1
+        refreshGrid()
+        refreshDanger()
     }
     function shoot(tag) {
         if (shotDir === "")
@@ -756,6 +773,53 @@ ApplicationWindow {
                     demoTimer.stop()
                     Qt.quit()
                 }
+            } else if (demoScene === "danger6" || demoScene === "danger4" || demoScene === "danger2") {
+                // 危险三段验收：一段=最高块在第5行 / 二段=第3行 / 三段=第1行
+                isPaused = false
+                if (demoStep === 0) {
+                    var top = demoScene === "danger6" ? 5 : demoScene === "danger4" ? 3 : 1
+                    for (var dr = top; dr < rows; dr++) {
+                        var rowStr = ""
+                        for (var dc = 0; dc < cols; dc++) rowStr += "1"
+                        demoFillRow(dr, rowStr)
+                    }
+                    refreshGrid()
+                    refreshDanger()
+                    shoot("danger-top" + top)
+                } else {
+                    demoTimer.stop()
+                    Qt.quit()
+                }
+            } else if (demoScene === "recap") {
+                // 结算页验收：预置战绩与徽章 → 展开态 / 折叠态
+                if (demoStep === 0) {
+                    score = 4136
+                    scoreTarget = 4820
+                    totalClearedLines = 38
+                    maxCombo = 6
+                    tetrisCount = 2
+                    b2bCount = 1
+                    newUnlocks = 1
+                    gameBadges = ["clutch", "precise"]
+                    isGameOver = true
+                    shoot("recap")
+                } else if (demoStep === 1) {
+                    recapCompact = true
+                    shoot("recap-compact")
+                } else {
+                    demoTimer.stop()
+                    Qt.quit()
+                }
+            } else if (demoScene === "badge") {
+                isPaused = false
+                if (demoStep === 0) {
+                    showToast("🛡️", "极限救场")
+                } else if (demoStep === 1) {
+                    shoot("badge")
+                } else {
+                    demoTimer.stop()
+                    Qt.quit()
+                }
             } else {
                 demoTimer.stop()
             }
@@ -763,8 +827,8 @@ ApplicationWindow {
         }
     }
     function demoFireTetris() {
-        rotate()      // 横→竖（绕右缘锚定，落 col9）
-        hardDrop()    // 落入第 9 列空缺 → 四消 + Tetris 演出
+        // 竖 I 已对准 col11 缺口：直接硬落补齐 → 四消三段式演出（勿 rotate，会落到堆顶）
+        hardDrop()
         // 演示诊断：验证四消是否真的发生
         var filled = 0
         for (var r = 0; r < rows; r++)
@@ -895,6 +959,36 @@ ApplicationWindow {
         comboCenterLabel.opacity = 1
         comboCenterLabel.scale = 0.8
         comboCenterBurstAnimation.restart()
+    }
+
+    // ---- 阶段5：过程徽章 + 小徽章 toast（局内里程碑复用同一 toast）----
+    readonly property var badgeDefs: ({
+        "clutch":  { icon: "🛡️", name: "极限救场" },
+        "flow":    { icon: "🌊", name: "流畅操作" },
+        "precise": { icon: "🎯", name: "精准落位" }
+    })
+    function earnBadge(id) {
+        for (var i = 0; i < gameBadges.length; i++)
+            if (gameBadges[i] === id) return
+        gameBadges.push(id)
+        showToast(badgeDefs[id].icon, badgeDefs[id].name)
+    }
+    property string toastIcon: ""
+    property string toastText: ""
+    Timer { id: toastTimer; interval: 2200; onTriggered: toastText = "" }
+    function showToast(icon, text) {
+        toastIcon = icon
+        toastText = text
+        toastTimer.restart()
+    }
+    // 结算页「本局亮点」：取徽章之最（clutch > flow > precise），无徽章回退战绩句
+    function recapHighlight() {
+        if (gameBadges.indexOf("clutch") !== -1) return "🛡️ 危险时刻极限救场"
+        if (gameBadges.indexOf("flow") !== -1) return "🌊 行云流水未涉险境"
+        if (gameBadges.indexOf("precise") !== -1) return "🎯 落位分毫不差"
+        if (tetrisCount > 0) return "🧱 打出 " + tetrisCount + " 次四行消除"
+        if (maxCombo >= 3) return "🔥 最高连击 x" + maxCombo
+        return "稳扎稳打的一局"
     }
 
     // 震动三档：off 静音 / std 标准 / strong 加强（时长 1.8 倍）
@@ -1054,13 +1148,21 @@ ApplicationWindow {
         }
     }
 
-    function isDanger() {
-        if (grid.length === 0) return false
-        for (var r = 0; r < 4; r++)
+    // 危险三段（基于真实堆叠最高点）：顶部2行→3 / 顶部4行→2 / 顶部6行→1 / 其余 0。
+    // grid 为原地变更，绑定时序不可靠 → 由 lockPiece/startGame/演示场景命令式刷新 dangerLv
+    function dangerLevel() {
+        if (grid.length === 0) return 0
+        for (var r = 0; r < rows; r++)
             for (var c = 0; c < cols; c++)
-                if (grid[r][c] !== 0) return true
-        return false
+                if (grid[r][c] !== 0) {
+                    if (r < 2) return 3
+                    if (r < 4) return 2
+                    if (r < 6) return 1
+                    return 0
+                }
+        return 0
     }
+    function refreshDanger() { dangerLv = dangerLevel() }
 
     // 移动/旋转前的当前形态快照（残影）
     function spawnAfterimage() {
@@ -1114,8 +1216,10 @@ ApplicationWindow {
             tetrisRing1.visible = true
             tetrisRing2.visible = true
             tetrisRingsAnimation.restart()
-            sparkBurst.burst(Math.round(28 * fxParticleScale),
+            sparkBurst.burst(Math.round(12 * fxParticleScale),
                              gameBoard.width / 2, gameBoard.height / 2)
+            dimBurst.burst(Math.round(16 * fxParticleScale),
+                           gameBoard.width / 2, gameBoard.height / 2)
             triggerScreenShake(4)
             punchAnimation.restart()            // 0.99 回弹到 1.035 再回落 = 释放冲击
         }
@@ -1164,6 +1268,13 @@ ApplicationWindow {
         canHold = true
         b2bActive = false
         maxCombo = 0
+        tetrisCount = 0
+        b2bCount = 0
+        gameBadges = []
+        cleanClearStreak = 0
+        newUnlocks = 0
+        recapCompact = false
+        dangerLv = 0
         playSeconds = 0
         myRankText = ""
         submitPending = false
@@ -1244,8 +1355,8 @@ ApplicationWindow {
         return false
     }
 
-    // 锁定方块到网格
-    function lockPiece() {
+    // 锁定方块到网格。fast=true（硬降）：落点闪光提速至 140ms，强调"落在哪"
+    function lockPiece(fast) {
         lockDelayTimer.stop()
         vibe(15)
         var flashCells = []
@@ -1260,9 +1371,11 @@ ApplicationWindow {
             }
         }
         lockFlashes = flashCells
+        lockFlashTimer.interval = fast ? 140 : 320
         lockFlashTimer.restart()
         clearLines()
         refreshGrid()
+        refreshDanger()
         spawnPiece()
     }
 
@@ -1279,6 +1392,13 @@ ApplicationWindow {
         if (linesCleared === 0) {
             // 连击不清零：交由能量槽随时间衰减，能量归零才结束连击
             return
+        }
+        // 阶段5 过程徽章（判定取消行前的危险态，严格可复现）
+        if (dangerLv >= 2) {
+            earnBadge("clutch")                  // 极限救场：危险态完成消行
+        } else if (dangerLv < 2) {
+            cleanClearStreak++
+            if (cleanClearStreak >= 6) earnBadge("flow")   // 流畅操作：连续 6 次消行未入危险区
         }
         // 碎片：按删行前的布局记录被消方块的原始位置与颜色
         var frags = []
@@ -1336,6 +1456,21 @@ ApplicationWindow {
         b2bActive = isDifficult
         comboStreak++
         comboDisplayText = comboStreak > 1 ? (comboStreak + "x") : ""
+        // 阶段5 结果徽章计数 + 局内里程碑（新背景解锁复用现有演出，不加 toast）
+        if (isDifficult) {
+            tetrisCount++
+            if (tetrisCount === 1) showToast("🎉", "本局首次四消！")
+        }
+        if (b2bBonus) b2bCount++
+        if (comboStreak === 5) showToast("🔥", "连击 x5")
+        else if (comboStreak === 7) showToast("🔥", "连击 x7")
+        // 精准落位：本块锁定格子全部属于被消的行
+        if (lockFlashes.length > 0) {
+            var allInCleared = true
+            for (var lc = 0; lc < lockFlashes.length; lc++)
+                if (clearedSet[lockFlashes[lc].row] !== true) { allInCleared = false; break }
+            if (allInCleared) earnBadge("precise")
+        }
         comboEnergy = 100                    // 连击保鲜：消行瞬间回满
         totalClearedLines += linesCleared
         updateDropSpeed()
@@ -1456,7 +1591,7 @@ ApplicationWindow {
         // 震屏随下落距离递增（封顶 8px），减少动态时归零
         root.shakeYAmplitude = Math.round(Math.min(8, 2 + rows * 0.7) * fxShakeScale)
         thumpAnimation.restart()
-        lockPiece()
+        lockPiece(true)
     }
     // 移动/旋转成功后调用：触底则刷新锁定延迟（有次数上限，防止无限拖延）
     // 移动/旋转成功后调用：触底则刷新锁定延迟（有次数上限），离地则取消待锁定（防止半空锁定）
@@ -2489,7 +2624,67 @@ ApplicationWindow {
                 }
             }
 
-            // 12. 粒子系统：Tetris 火花 + 到底灰尘 + 三消橙色碎片
+            // 12. 粒子系统：Tetris 火花（亮星/暗屑两档）+ 到底灰尘 + 三消橙色碎片
+            // 亮星：大而快、寿命短——负责冲击感；暗屑：小而慢、寿命长——负责余韵拖尾
+            ParticleSystem { id: starSystem }
+
+            ItemParticle {
+                system: starSystem
+                delegate: Rectangle {
+                    width: 8
+                    height: 8
+                    radius: 4
+                    color: "#fff3b0"
+                }
+            }
+
+            Gravity {
+                system: starSystem
+                angle: 90
+                magnitude: 300
+            }
+
+            Emitter {
+                id: sparkBurst
+                system: starSystem
+                enabled: false
+                emitRate: 0
+                lifeSpan: 700
+                size: 8
+                endSize: 2
+                velocity: AngleDirection { angle: 90; angleVariation: 180; magnitude: 300; magnitudeVariation: 160 }
+            }
+
+            ParticleSystem { id: dimSystem }
+
+            ItemParticle {
+                system: dimSystem
+                delegate: Rectangle {
+                    width: 4
+                    height: 4
+                    radius: 2
+                    color: "#a8863f"
+                    opacity: 0.8
+                }
+            }
+
+            Gravity {
+                system: dimSystem
+                angle: 90
+                magnitude: 200
+            }
+
+            Emitter {
+                id: dimBurst
+                system: dimSystem
+                enabled: false
+                emitRate: 0
+                lifeSpan: 950
+                size: 4
+                endSize: 1
+                velocity: AngleDirection { angle: 90; angleVariation: 180; magnitude: 150; magnitudeVariation: 80 }
+            }
+
             ParticleSystem { id: fxSystem }
 
             ItemParticle {
@@ -2506,17 +2701,6 @@ ApplicationWindow {
                 system: fxSystem
                 angle: 90
                 magnitude: 260
-            }
-
-            Emitter {
-                id: sparkBurst
-                system: fxSystem
-                enabled: false
-                emitRate: 0
-                lifeSpan: 750
-                size: 5
-                endSize: 1
-                velocity: AngleDirection { angle: 90; angleVariation: 180; magnitude: 240; magnitudeVariation: 140 }
             }
 
             Emitter {
@@ -2585,21 +2769,88 @@ ApplicationWindow {
                 }
             }
 
-            // 14. 危险预警红框（堆叠进入顶部 4 行）
+            // 14. 危险三段预警（全部基于真实堆叠最高点，refreshDanger 命令式刷新）
+            // 一段：顶部暖色光带（第 6 行有块）——柔和预告，不催促
+            Rectangle {
+                anchors.top: parent.top
+                width: parent.width
+                height: blockSize * 2.6
+                visible: dangerLv >= 1 && !isGameOver
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: Qt.rgba(1.0, 0.62, 0.30, dangerLv >= 2 ? 0.24 : 0.30) }
+                    GradientStop { position: 1.0; color: Qt.rgba(1.0, 0.62, 0.30, 0) }
+                }
+            }
+
+            // 二段：红色呼吸边框（进入顶部 4 行），治愈模式慢呼吸
             Rectangle {
                 anchors.fill: parent
                 color: "transparent"
                 radius: 2
                 border.width: 4
                 border.color: "#ff2a2a"
-                visible: dangerActive && !isGameOver
-                opacity: 0.6
+                visible: dangerLv >= 2 && !isGameOver
+                opacity: reduceMotion ? 0.55 : 0.6
 
                 SequentialAnimation on opacity {
-                    running: dangerActive && !isGameOver && !isPaused && !reduceMotion
+                    running: dangerLv >= 2 && !isGameOver && !isPaused && !reduceMotion
                     loops: Animation.Infinite
                     NumberAnimation { to: 0.9; duration: Math.round(300 * fxBreathScale); easing.type: Easing.OutQuad }
                     NumberAnimation { to: 0.3; duration: Math.round(300 * fxBreathScale); easing.type: Easing.InQuad }
+                }
+            }
+
+            // 三段：每 2 秒短脉冲（170ms 亮 + 1830ms 熄）+ 小字提示（进入顶部 2 行）
+            Rectangle {
+                anchors.fill: parent
+                color: "transparent"
+                radius: 2
+                border.width: 6
+                border.color: "#ff2020"
+                visible: dangerLv >= 3 && !isGameOver
+                opacity: reduceMotion ? 0.6 : 0.15
+
+                SequentialAnimation on opacity {
+                    running: dangerLv >= 3 && !isGameOver && !isPaused && !reduceMotion
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 0.9; duration: 170; easing.type: Easing.OutQuad }
+                    NumberAnimation { to: 0.15; duration: 1830; easing.type: Easing.InQuad }
+                }
+            }
+
+            Text {
+                visible: dangerLv >= 3 && !isGameOver
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 6
+                text: "即将失败"
+                color: "#ff5a4a"
+                font.pixelSize: 13
+                font.bold: true
+                opacity: 0.95
+            }
+
+            // 14b. 小徽章 / 里程碑 toast（棋盘顶部居中，2.2s 自动淡出）
+            Rectangle {
+                id: badgeToast
+                visible: toastText !== ""
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: 10
+                width: toastRow.implicitWidth + 30
+                height: 38
+                radius: 19
+                color: "#F0222222"
+                border.color: "#ffd95a"
+                border.width: 1
+                z: 40
+                opacity: toastText !== "" ? 1.0 : 0.0
+                Behavior on opacity { NumberAnimation { duration: 220 } }
+
+                Row {
+                    id: toastRow
+                    anchors.centerIn: parent
+                    spacing: 8
+                    Text { text: toastIcon; font.pixelSize: 17; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: toastText; color: "#ffe9a8"; font.pixelSize: 15; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
                 }
             }
 
@@ -2694,20 +2945,112 @@ ApplicationWindow {
                     anchors.centerIn: parent
                     spacing: 12
 
-                    Text {
-                        text: "游戏结束"
-                        color: "red"
-                        font.pixelSize: 32
-                        anchors.horizontalCenter: parent.horizontalCenter
+                    // 阶段6 本局回忆：大分数 + 2×2 统计格 + 本局亮点，点头部折叠为紧凑模式
+                    Rectangle {
+                        id: recapHead
+                        visible: !recapCompact
+                        width: 268
+                        height: recapHeadCol.implicitHeight + 22
+                        radius: 12
+                        color: "#22222220"
+                        border.color: "#55333333"
+                        border.width: 1
+
+                        Column {
+                            id: recapHeadCol
+                            anchors.centerIn: parent
+                            spacing: 9
+
+                            Text {
+                                text: "本局结束"
+                                color: "#ffd95a"
+                                font.pixelSize: 15
+                                font.bold: true
+                                anchors.horizontalCenter: parent.horizontalCenter
+                            }
+
+                            Text {
+                                text: "" + scoreTarget
+                                color: "#ffffff"
+                                font.pixelSize: 36
+                                font.bold: true
+                                anchors.horizontalCenter: parent.horizontalCenter
+                            }
+
+                            Grid {
+                                columns: 2
+                                spacing: 7
+                                anchors.horizontalCenter: parent.horizontalCenter
+
+                                Repeater {
+                                    model: [
+                                        { label: "累计消行", value: "" + totalClearedLines },
+                                        { label: "最高连击", value: maxCombo > 1 ? "x" + maxCombo : "—" },
+                                        { label: "四行消除", value: "" + tetrisCount },
+                                        { label: "新收藏", value: "" + newUnlocks }
+                                    ]
+                                    delegate: Rectangle {
+                                        width: 122
+                                        height: 46
+                                        radius: 9
+                                        color: "#33222222"
+
+                                        Column {
+                                            anchors.centerIn: parent
+                                            spacing: 1
+
+                                            Text {
+                                                text: modelData.value
+                                                color: "#ffffff"
+                                                font.pixelSize: 17
+                                                font.bold: true
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                            }
+                                            Text {
+                                                text: modelData.label
+                                                color: "#999999"
+                                                font.pixelSize: 11
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: "本局亮点：" + recapHighlight()
+                                color: "#ffe9a8"
+                                font.pixelSize: 12
+                                anchors.horizontalCenter: parent.horizontalCenter
+                            }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: recapCompact = true
+                        }
                     }
 
-                    Text {
-                        text: "消行 " + totalClearedLines
-                              + "   用时 " + formatPlayTime(playSeconds)
-                              + (maxCombo > 1 ? "   最大连击 x" + maxCombo : "")
-                        color: "#dddddd"
-                        font.pixelSize: 15
-                        anchors.horizontalCenter: parent.horizontalCenter
+                    Rectangle {
+                        visible: recapCompact
+                        width: 268
+                        height: 42
+                        radius: 10
+                        color: "#22222220"
+                        border.color: "#55333333"
+                        border.width: 1
+
+                        Row {
+                            anchors.centerIn: parent
+                            spacing: 10
+                            Text { text: "" + scoreTarget + " 分"; color: "#ffffff"; font.pixelSize: 16; font.bold: true }
+                            Text { text: "点按展开"; color: "#888888"; font.pixelSize: 12; anchors.verticalCenter: parent.verticalCenter }
+                        }
+
+                        MouseArea {
+                            anchors.fill: parent
+                            onClicked: recapCompact = false
+                        }
                     }
 
                     TextField {

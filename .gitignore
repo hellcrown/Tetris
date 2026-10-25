@@ -5,5 +5,5 @@ b/
 .gradle/
 local.properties
 release/*
-!release/Tetris-v3.6-beta.19-signed.apk
-!release/Tetris-v3.6-beta.19-signed.apk.idsig
+!release/Tetris-v3.6-signed.apk
+!release/Tetris-v3.6-signed.apk.idsig
