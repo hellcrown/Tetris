@@ -42,10 +42,48 @@ ApplicationWindow {
     ]
 
     // 对应颜色（治愈系高辨识配色：I/O/T/L/J/S/Z）
-    readonly property var colors: [
+    readonly property var colorsNormal: [
         "#54D6E8", "#F5D76E", "#B69CFF",
         "#FFB46E", "#7FAEFF", "#8BDB9A", "#FF8B94"
     ]
+
+    // 护眼配色：同一套色相压低饱和（≈40%），并把亮度收窄到 160~190 的窄带。
+    // 高饱和大面积色会让眼睛持续眩光（青、黄尤其明显），而亮度不齐会让视线被"亮块"拽走、
+    // 反复重新对焦；收窄亮度带后整盘是一个均匀的亮度面，长时间看不容易累。
+    readonly property var colorsEye: [
+        "#7FB9C4", "#C9BC85", "#A79BC9",
+        "#C9A183", "#8AA3CC", "#97BE9C", "#C99A9C"
+    ]
+
+    readonly property var colors: eyeCare ? colorsEye : colorsNormal
+
+    // 棋盘底色：护眼模式再压暗一档，让「亮的方块」与「底」之间的亮度阶更缓
+    readonly property color boardBgColor: eyeCare ? "#161D22" : "#18232B"
+    // 背景图透明度：护眼模式压到 0.10——背景照片会整体抬高屏幕的「基线亮度」，
+    // 还会在周边视野里持续移动/呼吸，是眼睛最容易被悄悄拉走注意力的那一层
+    readonly property real bgBaseOpacity: eyeCare ? 0.10 : 0.18
+
+    // 已锁进 grid 的格子存的是颜色字面量本身，切换护眼模式时要就地映射，
+    // 否则同一盘里新旧两套色混着（重开后才自然统一）。
+    // 注意：调用方可能递进来 color 类型（GameBlock.baseColor）而不是字符串，
+    // color→string 会变成小写 #rrggbb（带 alpha 时是 #aarrggbb），所以统一归一化后再查表。
+    function toneKey(c) {
+        var s = String(c).toLowerCase()
+        if (s.charAt(0) === "#") s = s.substring(1)
+        if (s.length === 8) s = s.substring(2)      // 去掉 alpha 通道
+        return s
+    }
+    readonly property var eyeToneMap: {
+        var m = {}
+        for (var i = 0; i < colorsNormal.length && i < colorsEye.length; i++)
+            m[toneKey(colorsNormal[i])] = toneKey(colorsEye[i])
+        return m
+    }
+    function tone(c) {
+        if (!eyeCare || c === undefined || c === null) return c
+        var hit = eyeToneMap[toneKey(c)]
+        return (hit === undefined || hit === null) ? String(c) : ("#" + hit)
+    }
 
     // --- 游戏状态变量 ---
     property var grid: []               // 游戏网格数据
@@ -102,14 +140,41 @@ ApplicationWindow {
 
     // ---- 特效预设（v3.6 阶段1）：治愈(默认)/街机 只调表现层参数，不改规则 ----
     property string fxPreset: "zen"        // zen=治愈 / arcade=街机
-    property bool reduceMotion: false      // 减少动态：无震屏/无闪光/无环境粒子/背景静止，保留必要提示（护眼推荐）
+    property bool reduceMotion: false      // 减少动态：无震屏/无闪光/无粒子/背景静止，保留必要提示
+
+    // ---- 护眼模式（v3.7）：针对「玩一会儿就眼干、刺痛、流泪」的成因逐条压下去 ----
+    // 生理成因排序：① 专注时不眨眼（眨眼率降到 1/3 → 泪膜破裂 → 刺痛流泪）；
+    //   ② 高频亮度跳变（落锁白光、整行爆闪、快速下落的阶跃）→ 视觉疲劳；
+    //   ③ 大面积高饱和色 + 视野内密集高对比微纹理（每个方块的白边/高光/网格线）→ 睫状肌持续用力；
+    //   ④ 震屏/缩放 → 眼睛反复重新对焦；⑤ 背景照片/粒子在周边视野持续运动。
+    // 本开关一次处理 ②~⑤，并叠加 20 分钟休息提醒处理 ①。不改任何游戏规则。
+    property bool eyeCare: false
+    // 中途切换时：清掉残留的视觉补偿，并把被背景漂移 Timer 打断的透明度绑定重新摆正。
+    // Settings 在对象树里排在 bgImage 之前，首帧完成前可能先触发一次 → 逐个判空。
+    onEyeCareChanged: {
+        stopSlide()
+        if (bgImage) {
+            bgImage.opacity = bgBaseOpacity
+            bgImage.x = -26
+            bgImage.y = -18
+        }
+    }
+    readonly property bool calmFx: eyeCare || reduceMotion   // 统一闸门：无白闪/无震屏/无爆闪粒子/无背景漂移
     readonly property bool zenFx: fxPreset === "zen"
     // 参数表（全部走缩放系数，随时可调）
-    readonly property real fxShakeScale: reduceMotion ? 0 : (zenFx ? 0.4 : 1.0)      // 震屏幅度
-    readonly property int  fxFlashMs: reduceMotion ? 0 : (zenFx ? 240 : 180)         // 全屏白闪衰减时长
-    readonly property real fxFlashPeak: reduceMotion ? 0 : (zenFx ? 0.22 : 0.85)     // 白闪峰值（治愈=轻柔提亮）
-    readonly property real fxParticleScale: reduceMotion ? 0.5 : (zenFx ? 0.65 : 1.0)// 粒子数量
-    readonly property real fxBreathScale: reduceMotion ? 2.2 : (zenFx ? 1.6 : 1.0)   // 呼吸/闪烁周期倍率
+    readonly property real fxShakeScale: calmFx ? 0 : (zenFx ? 0.4 : 1.0)      // 震屏幅度
+    readonly property int  fxFlashMs: calmFx ? 0 : (zenFx ? 240 : 180)         // 全屏白闪衰减时长
+    readonly property real fxFlashPeak: calmFx ? 0 : (zenFx ? 0.22 : 0.85)     // 白闪峰值（治愈=轻柔提亮）
+    readonly property real fxParticleScale: calmFx ? 0 : (zenFx ? 0.65 : 1.0)  // 粒子数量
+    readonly property real fxBreathScale: eyeCare ? 3.2 : reduceMotion ? 2.2 : (zenFx ? 1.6 : 1.0)   // 呼吸/闪烁周期倍率
+    // 落锁闪光：每次落块都会触发（约 1Hz），白光最扎眼 → 护眼模式改成方块自身色的柔和提亮
+    readonly property real fxLockFlashAlpha: eyeCare ? 0.42 : 0.9
+    readonly property int  fxLockFlashMs: eyeCare ? 240 : 270
+    // 整行爆闪：一整行 12 格同时转白，是全屏最大的亮度阶跃
+    readonly property real fxRowFlashAlpha: eyeCare ? 0.20 : 0.85
+    readonly property int  fxRowFlashMs: eyeCare ? 320 : 200
+    readonly property bool smoothFall: eyeCare                                 // 平滑下落（消除快速下落的阶跃频闪）
+    readonly property int  breakReminderMinutes: 20                            // 休息提醒间隔（分钟）
     property bool fxSurge: false           // P1 大事件进行中：背景/氛围层让位（压暗+减速）
     property double bigFxUntil: 0          // Tetris 大演出占用期（解锁演出让位，避免同帧撞车）
     property string pendingUnlock: ""      // 暂缓的背景解锁主题名
@@ -238,8 +303,12 @@ ApplicationWindow {
     property int shakeOffsetY: 0        // 到底纵向冲击偏移
     property real shakeYAmplitude: 8    // 纵向冲击幅度（消行按行数加码，到底固定）
     property real boardPunch: 1.0       // 消行打击 zoom（棋盘整体脉冲放大）
+    // 平滑下落（护眼模式）：逻辑判定仍是整格离散，只在视觉上把每次下落补成一次短插值。
+    // 原本每 interval 一次整格 26px 硬跳，最快 40ms/格 = 25 次/秒，人眼跟不上，
+    // 在注视区等效于一盏 25Hz 频闪灯——长时间玩眼睛发酸、流泪的主要来源之一。
+    property real pieceSlide: 0         // 当前方块的视觉补偿（px），-blockSize → 0
     property var rowFlashes: []         // 消行白光爆闪的行号
-    property var lockFlashes: []        // 落锁闪光 {col,row}
+    property var lockFlashes: []        // 落锁闪光 {col,row,color}
     property var afterimages: []        // 移动/旋转残影 {cells:[{c,r}],color,ts}
     property var dropStreaks: []        // 到底速度线 {x,y0,y1,color}
     property var scoreFloats: []        // 分数栏飘字 {dx,text,born}
@@ -248,12 +317,16 @@ ApplicationWindow {
     readonly property bool dangerActive: dangerLv > 0   // 兼容旧引用（红框等已改用 dangerLv 分层）
 
     // 立体质感方块：顶部高光 + 底部阴影
+    // 护眼模式：高光压到近无、描边由"更亮的边"改为"更暗的边"——
+    // 每个方块原本是 亮描边+白高光+暗阴影 三重高对比微纹理，252 格加一起就是
+    // 满视野的高频细节，眼睛要不停对焦才看得清。压平后仍是同一种立体感，但没有亮边刺眼。
     component GameBlock: Rectangle {
         property color baseColor: "#f00000"
-        color: baseColor
+        property color faceColor: root.tone(baseColor)
+        color: faceColor
         radius: 2
         border.width: 1
-        border.color: Qt.lighter(baseColor, 1.4)
+        border.color: eyeCare ? Qt.darker(faceColor, 1.18) : Qt.lighter(baseColor, 1.4)
 
         Rectangle {
             anchors.top: parent.top
@@ -262,8 +335,8 @@ ApplicationWindow {
             height: parent.height * 0.3
             radius: parent.radius
             gradient: Gradient {
-                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, 0.42) }
-                GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, 0.04) }
+                GradientStop { position: 0.0; color: Qt.rgba(1, 1, 1, eyeCare ? 0.12 : 0.42) }
+                GradientStop { position: 1.0; color: Qt.rgba(1, 1, 1, eyeCare ? 0.02 : 0.04) }
             }
         }
 
@@ -274,7 +347,7 @@ ApplicationWindow {
             height: parent.height * 0.2
             gradient: Gradient {
                 GradientStop { position: 0.0; color: Qt.rgba(0, 0, 0, 0) }
-                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, 0.32) }
+                GradientStop { position: 1.0; color: Qt.rgba(0, 0, 0, eyeCare ? 0.16 : 0.32) }
             }
         }
     }
@@ -307,6 +380,7 @@ ApplicationWindow {
         property alias maxComboAllValue: root.maxComboAll
         property alias fxPresetValue: root.fxPreset
         property alias reduceMotionValue: root.reduceMotion
+        property alias eyeCareValue: root.eyeCare
         property alias patchVerValue: root.patchVer
         property alias bestLinesValue: root.bestLines
         property alias bestTimeValue: root.bestTime
@@ -591,6 +665,45 @@ ApplicationWindow {
         NumberAnimation { target: root; property: "boardPunch"; to: 1.0; duration: 170; easing.type: Easing.OutBack }
     }
 
+    // 平滑下落插值：每次逻辑下落把视觉位置从上一格线性推到新格。
+    // duration 取「本档下落间隔」的截断值——低速时是 170ms 的轻推（原本是 0ms 硬跳），
+    // 高速时（间隔 ≤170ms）时长正好等于间隔，于是退化成连续匀速下落，彻底没有阶跃。
+    NumberAnimation {
+        id: pieceSlideAnim
+        target: root
+        property: "pieceSlide"
+        to: 0
+        duration: 170
+        easing.type: Easing.Linear
+    }
+
+    // 护眼休息提醒：专注打游戏时眨眼频率会掉到平时 1/3 左右，泪膜破裂才是
+    // 「刺痛 + 流泪」最直接的成因——这条比任何画面调整都管用，到点自动暂停并提示远眺。
+    property bool breakPrompt: false
+    property int breakCountdown: 20
+    Timer {
+        id: breakTimer
+        interval: Math.max(1, breakReminderMinutes) * 60000
+        repeat: true
+        running: eyeCare && !isGameOver
+        onTriggered: {
+            if (isPaused || isGameOver) return   // 已经在暂停/结算里就不打扰，等下一个周期
+            breakCountdown = 20
+            breakCountTimer.restart()
+            breakPrompt = true
+            pauseGame()
+        }
+    }
+    Timer {
+        id: breakCountTimer
+        interval: 1000
+        repeat: true
+        onTriggered: {
+            if (breakCountdown > 0) breakCountdown--
+            if (breakCountdown <= 0) breakCountTimer.stop()
+        }
+    }
+
     // Tetris 全屏白闪（治愈=轻柔渐变 / 街机=180ms / 减少动态=不闪）。
     // 缓升 25% 时长再缓降：消除亮度阶跃——阶跃式闪光是视觉疲劳的主要来源
     SequentialAnimation {
@@ -663,9 +776,15 @@ ApplicationWindow {
         if (demoPreset === "rm") {
             fxPreset = "zen"
             reduceMotion = true
+            eyeCare = false
+        } else if (demoPreset === "eye") {
+            fxPreset = "zen"
+            reduceMotion = false
+            eyeCare = true
         } else if (demoPreset === "zen" || demoPreset === "arcade") {
             fxPreset = demoPreset
             reduceMotion = false
+            eyeCare = false
         }
         if (demoScene !== "" && shotDir !== "")
             demoTimer.restart()
@@ -1235,7 +1354,10 @@ ApplicationWindow {
     }
 
     // 移动/旋转前的当前形态快照（残影）
+    // 护眼/减少动态不出残影：每次左右移动/旋转都会刷一次 170ms 的淡色亮块，
+    // 操作密集时相当于在视野中心连续闪，收益（辅助定位）远小于代价。
     function spawnAfterimage() {
+        if (calmFx) return
         if (currentShape.length === 0) return
         var cells = []
         for (var r = 0; r < currentShape.length; r++)
@@ -1248,6 +1370,7 @@ ApplicationWindow {
     }
 
     function triggerDropShockwave(cx, cy) {
+        if (calmFx) return             // 护眼/减少动态：白色扩散圆环是最亮的单次跃变，直接不出
         dropShockwave.x = cx - dropShockwave.width / 2
         dropShockwave.y = cy - dropShockwave.height / 2
         dropShockwave.visible = true
@@ -1260,7 +1383,7 @@ ApplicationWindow {
         bigFxUntil = Date.now() + 900           // 里程碑/解锁演出让位（避免同帧撞车）
         tetrisB2b = b2b
         tetrisEarned = earned
-        if (reduceMotion) {
+        if (calmFx) {
             tetrisRelease()
             return
         }
@@ -1268,8 +1391,8 @@ ApplicationWindow {
         tetrisReleaseTimer.restart()            // 70ms 后释放（回弹+全部大特效）
     }
     function tetrisRelease() {
-        console.warn("[Release] zen=" + zenFx + " rm=" + reduceMotion + " flashMs=" + fxFlashMs)
-        if (!reduceMotion) {
+        console.warn("[Release] zen=" + zenFx + " rm=" + reduceMotion + " eye=" + eyeCare + " flashMs=" + fxFlashMs)
+        if (!calmFx) {
             if (fxFlashMs > 0) {
                 flashOverlay.visible = true
                 flashAnimation.restart()
@@ -1324,6 +1447,7 @@ ApplicationWindow {
         grid = createEmptyGrid()
         score = 0
         scoreTarget = 0
+        stopSlide()
         comboStreak = 0
         comboDisplayText = ""
         comboEnergy = 0
@@ -1372,6 +1496,7 @@ ApplicationWindow {
         prepareNextPiece()
         posX = Math.floor(cols / 2) - Math.floor(currentShape[0].length / 2)
         posY = 0
+        stopSlide()
         lowestRow = 0
         lockResets = 0
         lockDelayTimer.stop()
@@ -1399,6 +1524,7 @@ ApplicationWindow {
             currentColor = colors[swap]
             posX = Math.floor(cols / 2) - Math.floor(currentShape[0].length / 2)
             posY = 0
+            stopSlide()
             lowestRow = 0
             lockResets = 0
             if (checkCollision(posX, posY, currentShape)) {
@@ -1436,7 +1562,7 @@ ApplicationWindow {
                 if (currentShape[r][c]) {
                     if (posY + r >= 0) { // 防止在顶部溢出
                         grid[posY + r][posX + c] = currentColor
-                        flashCells.push({ col: posX + c, row: posY + r })
+                        flashCells.push({ col: posX + c, row: posY + r, color: currentColor })
                     }
                 }
             }
@@ -1515,7 +1641,7 @@ ApplicationWindow {
         lineClearFragments = frags
         rowFlashes = clearedRows
         rowFlashTimer.restart()
-        if (!reduceMotion && linesCleared < 4)
+        if (!calmFx && linesCleared < 4)
             punchAnimation.restart()          // 四消走三段式演出（蓄力压缩），普通消行才用脉冲
         // P1 大事件（3/4 消）让位：背景压暗、氛围粒子减速 800ms
         if (linesCleared >= 3) {
@@ -1595,6 +1721,18 @@ ApplicationWindow {
     }
 
     // --- 移动控制 ---
+    // 平滑下落：逻辑上刚落了一格，视觉上从上一格推下来（仅护眼模式）
+    function slideDown() {
+        if (!smoothFall) return
+        pieceSlide = -blockSize
+        pieceSlideAnim.duration = Math.max(45, Math.min(170, gameLoop.interval))
+        pieceSlideAnim.restart()
+    }
+    // 位置被强制改写（生成/暂存/硬降/旋转踢墙）时必须立即归零，否则方块会从上一格滑进来
+    function stopSlide() {
+        if (pieceSlideAnim && pieceSlideAnim.running) pieceSlideAnim.stop()
+        if (pieceSlide !== 0) pieceSlide = 0
+    }
     function moveLeft() {
         if (isGameOver || isPaused) return
         if (!checkCollision(posX - 1, posY, currentShape)) {
@@ -1616,6 +1754,7 @@ ApplicationWindow {
         if (isGameOver || isPaused) return
         if (!checkCollision(posX, posY + 1, currentShape)) {
             posY++
+            slideDown()
             if (posY > lowestRow) {
                 lowestRow = posY
                 lockResets = 0
@@ -1630,6 +1769,7 @@ ApplicationWindow {
         if (isGameOver || isPaused) return
         if (!checkCollision(posX, posY + 1, currentShape)) {
             posY++
+            slideDown()
             scoreTarget++
             score++
             bumpBest(score)
@@ -1637,13 +1777,16 @@ ApplicationWindow {
                 lowestRow = posY
                 lockResets = 0
             }
-            spawnScoreFloat("+1")
+            // 护眼/减少动态不刷 +1 飘字：连续软降时每 110ms 就有一行小字往上飘，
+            // 是分数栏那边的持续运动噪声；软降的分照样加到分数上，只是不闪字
+            if (!calmFx) spawnScoreFloat("+1")
             lockDelayTimer.stop()
         }
     }
     // 手动到底：+2 分/格，立即锁定；带速度线/冲击波/纵向砸击
     function hardDrop() {
         if (isGameOver || isPaused) return
+        stopSlide()                     // 硬降是瞬移：视觉必须立刻到落点，不能滑
         var streaks = []
         for (var c = 0; c < currentShape[0].length; c++) {
             for (var r = 0; r < currentShape.length; r++) {
@@ -1669,8 +1812,7 @@ ApplicationWindow {
         streakTimer.restart()
         triggerDropShockwave((posX + currentShape[0].length / 2) * blockSize, bottomY)
         dustBurst.burst(Math.round(10 * fxParticleScale),
-                        (posX + currentShape[0].length / 2) * blockSize, bottomY - blockSize * 0.5)
-        // 震屏随下落距离递增（封顶 8px），减少动态时归零
+                        (posX + currentShape[0].length / 2) * blockSize, bottomY - blockSize * 0.5)        // 震屏随下落距离递增（封顶 8px），减少动态时归零
         root.shakeYAmplitude = Math.round(Math.min(8, 2 + rows * 0.7) * fxShakeScale)
         thumpAnimation.restart()
         lockPiece(true)
@@ -1715,6 +1857,7 @@ ApplicationWindow {
             for (var xx = anchorX; step > 0 ? xx <= posX : xx >= posX; xx += step) {
                 if (!checkCollision(xx, posY, newShape)) {
                     spawnAfterimage()
+                    stopSlide()          // 旋转换了形态，视觉补偿立刻归零
                     posX = xx
                     currentShape = newShape
                     onPieceMoved()
@@ -1726,6 +1869,7 @@ ApplicationWindow {
             for (var i = 0; i < kicksI.length; i++) {
                 if (!checkCollision(posX + kicksI[i][0], posY + kicksI[i][1], newShape)) {
                     spawnAfterimage()
+                    stopSlide()
                     posX += kicksI[i][0]
                     posY += kicksI[i][1]
                     currentShape = newShape
@@ -1740,6 +1884,7 @@ ApplicationWindow {
         for (var j = 0; j < kicks.length; j++) {
             if (!checkCollision(posX + kicks[j][0], posY + kicks[j][1], newShape)) {
                 spawnAfterimage()
+                stopSlide()
                 posX += kicks[j][0]
                 posY += kicks[j][1]
                 currentShape = newShape
@@ -1752,6 +1897,7 @@ ApplicationWindow {
     function gameOver() {
         isGameOver = true
         isPaused = false
+        stopSlide()
         gameLoop.stop()
         scoreTimer.stop()
         playTimeTimer.stop()
@@ -1790,7 +1936,7 @@ ApplicationWindow {
             source: bgFallback ? "qrc:/Tetris/image.jpg" : bgUrl(bgChoice)
             fillMode: Image.PreserveAspectCrop
             asynchronous: true   // 大图解码放后台线程，主题切换不卡 GUI 帧
-            opacity: 0.18
+            opacity: root.bgBaseOpacity
             onStatusChanged: if (status === Image.Error && !bgFallback) bgFallback = true
         }
 
@@ -1799,10 +1945,10 @@ ApplicationWindow {
             id: bgAnimTimer
             interval: 200
             repeat: true
-            running: !isPaused && !showBgPicker && !reduceMotion && Qt.application.state === Qt.ApplicationActive
+            running: !isPaused && !showBgPicker && !calmFx && Qt.application.state === Qt.ApplicationActive
             onTriggered: {
                 // P1 大事件让位：背景压暗 ~25%（呼吸幅度 0.025：低于可感知闪烁阈值）
-                bgImage.opacity = (0.19 + Math.sin(bgPhase * 0.42) * 0.025) * (fxSurge ? 0.75 : 1.0)
+                bgImage.opacity = (root.bgBaseOpacity + Math.sin(bgPhase * 0.42) * 0.025) * (fxSurge ? 0.75 : 1.0)
                 bgPhase += 0.037
                 bgImage.x = -26 + Math.sin(bgPhase) * 26
                 bgImage.y = -18 + Math.sin(bgPhase * 0.74) * 18
@@ -1829,7 +1975,7 @@ ApplicationWindow {
             height: 8
             x: 0
             y: ambientRise ? parent.height - 8 : 0
-            enabled: !isPaused && !reduceMotion && Qt.application.state === Qt.ApplicationActive
+            enabled: !isPaused && !calmFx && Qt.application.state === Qt.ApplicationActive
             // P1 大事件让位（fxSurge）：环境粒子降到 40%；预设/减少动态缩放数量
             emitRate: 4 * fxParticleScale * (fxSurge ? 0.4 : 1.0)
             lifeSpan: 9000
@@ -2189,8 +2335,8 @@ ApplicationWindow {
                                     width: 16
                                     height: 16
                                     radius: 2
-                                    color: nextColor
-                                    border.color: "white"
+                                    color: root.tone(nextColor)
+                                    border.color: eyeCare ? "#2b3439" : "white"
                                     border.width: 1
                                 }
                             }
@@ -2228,8 +2374,8 @@ ApplicationWindow {
                                     width: 8
                                     height: 8
                                     radius: 2
-                                    color: colors[holdShapeIndex]
-                                    border.color: "white"
+                                    color: root.tone(colors[holdShapeIndex])
+                                    border.color: eyeCare ? "#2b3439" : "white"
                                     border.width: 1
                                 }
                             }
@@ -2330,7 +2476,7 @@ ApplicationWindow {
             height: rows * blockSize
             anchors.horizontalCenter: parent.horizontalCenter
             clip: true
-            color: "#18232B" // 游戏区域深蓝灰（治愈系配色规范）
+            color: root.boardBgColor // 游戏区域深蓝灰（治愈系配色规范）
             border.color: turboMode ? "#ff4444" : "transparent"   // 白边框太扎眼，仅极速模式显示警示红框
             border.width: 2
             transform: [
@@ -2381,6 +2527,8 @@ ApplicationWindow {
             }
 
             // 1. 静态棋盘网格（不参与消行回弹）
+            // 护眼模式：网格线对比度压到原来的 ~60%——每 26px 一条亮线铺满整个视野，
+            // 是最典型的「高频细节」，会一直拉扯对焦；压暗后仍然看得出格子，但不刺眼。
             Repeater {
                 model: rows
                 delegate: Repeater {
@@ -2391,8 +2539,8 @@ ApplicationWindow {
                         y: rowIndex * blockSize
                         width: blockSize
                         height: blockSize
-                        border.color: "#35434B"
-                        color: "#18232B"
+                        border.color: eyeCare ? "#242E35" : "#35434B"
+                        color: root.boardBgColor
                     }
                 }
             }
@@ -2455,14 +2603,15 @@ ApplicationWindow {
                         height: blockSize
                         radius: 3
                         color: "transparent"
-                        border.color: currentColor
+                        border.color: root.tone(currentColor)
                         border.width: 2
-                        opacity: 0.35
+                        opacity: eyeCare ? 0.26 : 0.35
                     }
                 }
             }
 
             // 5. 绘制当前活动方块
+            // pieceSlide：护眼模式的视觉插值补偿（逻辑位置没变，只是画面平滑推下去）
             Repeater {
                 model: currentShape.length
                 delegate: Repeater {
@@ -2471,7 +2620,7 @@ ApplicationWindow {
                     GameBlock {
                         visible: modelData === 1
                         x: (posX + index) * blockSize
-                        y: (posY + r) * blockSize
+                        y: (posY + r) * blockSize + root.pieceSlide
                         width: blockSize
                         height: blockSize
                         baseColor: currentColor
@@ -2606,6 +2755,8 @@ ApplicationWindow {
             }
 
             // 7. 消行白光爆闪：被消的行整行亮一帧再碎裂
+            // 护眼模式：一整行 12 格同时转白是全屏最大的亮度阶跃 → 峰值压到 0.20，
+            // 衰减改为 OutQuad（一出现就开始退），时长拉长，读起来是"提亮"而不是"闪一下"
             Repeater {
                 model: rowFlashes
                 delegate: Rectangle {
@@ -2614,19 +2765,21 @@ ApplicationWindow {
                     width: gameBoard.width
                     height: blockSize
                     color: "#ffffff"
-                    opacity: 0.85
+                    opacity: root.fxRowFlashAlpha
 
                     NumberAnimation on opacity {
-                        from: 0.85
+                        from: root.fxRowFlashAlpha
                         to: 0
-                        duration: 200
-                        easing.type: Easing.InQuad
+                        duration: root.fxRowFlashMs
+                        easing.type: eyeCare ? Easing.OutQuad : Easing.InQuad
                         running: true
                     }
                 }
             }
 
             // 8. 落锁闪光（白光 + 底部挤压）
+            // 每次落块都会触发一次（约 1Hz），是护眼模式里最先要拆掉的白光：
+            // 改成"方块自身色提亮" + 更小的形变，落锁依然看得见，但没有亮斑跳变。
             Repeater {
                 model: lockFlashes
                 delegate: Rectangle {
@@ -2637,21 +2790,21 @@ ApplicationWindow {
                     width: blockSize
                     height: blockSize
                     radius: 2
-                    color: "#ffffff"
-                    opacity: 0.9
+                    color: eyeCare ? Qt.lighter(root.tone(modelData.color), 1.22) : "#ffffff"
+                    opacity: root.fxLockFlashAlpha
                     transformOrigin: Item.Bottom
 
                     NumberAnimation on scale {
-                        from: 1.18
+                        from: eyeCare ? 1.04 : 1.18
                         to: 1.0
-                        duration: 200
+                        duration: eyeCare ? 160 : 200
                         easing.type: Easing.OutQuad
                         running: true
                     }
                     NumberAnimation on opacity {
-                        from: 0.9
+                        from: root.fxLockFlashAlpha
                         to: 0
-                        duration: 270
+                        duration: root.fxLockFlashMs
                         easing.type: Easing.InQuad
                         running: true
                     }
@@ -2861,10 +3014,10 @@ ApplicationWindow {
                     return "#ff7a18"
                 }
                 visible: comboStreak >= 2
-                opacity: 0.6
+                opacity: calmFx ? 0.5 : 0.6
 
                 SequentialAnimation on opacity {
-                    running: comboStreak >= 2 && !isPaused && !reduceMotion
+                    running: comboStreak >= 2 && !isPaused && !calmFx
                     loops: Animation.Infinite
                     // 治愈档呼吸幅度减半（0.82↔0.58）降低闪烁刺激；街机保持原幅度
                     NumberAnimation {
@@ -2901,10 +3054,10 @@ ApplicationWindow {
                 border.width: 4
                 border.color: "#ff2a2a"
                 visible: dangerLv >= 2 && !isGameOver
-                opacity: reduceMotion ? 0.55 : 0.6
+                opacity: calmFx ? 0.5 : 0.6
 
                 SequentialAnimation on opacity {
-                    running: dangerLv >= 2 && !isGameOver && !isPaused && !reduceMotion
+                    running: dangerLv >= 2 && !isGameOver && !isPaused && !calmFx
                     loops: Animation.Infinite
                     NumberAnimation { to: 0.9; duration: Math.round(300 * fxBreathScale); easing.type: Easing.OutQuad }
                     NumberAnimation { to: 0.3; duration: Math.round(300 * fxBreathScale); easing.type: Easing.InQuad }
@@ -2912,17 +3065,18 @@ ApplicationWindow {
             }
 
             // 三段：每 2 秒短脉冲（170ms 亮 + 1830ms 熄）+ 小字提示（进入顶部 2 行）
+            // 护眼模式改为常亮细边（0.45）——"马上要输了"必须看得出来，但不能靠闪烁来催
             Rectangle {
                 anchors.fill: parent
                 color: "transparent"
                 radius: 2
-                border.width: 6
+                border.width: calmFx ? 4 : 6
                 border.color: "#ff2020"
                 visible: dangerLv >= 3 && !isGameOver
-                opacity: reduceMotion ? 0.6 : 0.15
+                opacity: calmFx ? 0.45 : 0.15
 
                 SequentialAnimation on opacity {
-                    running: dangerLv >= 3 && !isGameOver && !isPaused && !reduceMotion
+                    running: dangerLv >= 3 && !isGameOver && !isPaused && !calmFx
                     loops: Animation.Infinite
                     NumberAnimation { to: 0.9; duration: 170; easing.type: Easing.OutQuad }
                     NumberAnimation { to: 0.15; duration: 1830; easing.type: Easing.InQuad }
@@ -3955,6 +4109,78 @@ ApplicationWindow {
         }
     }
 
+    // 护眼休息提示（护眼模式每 20 分钟一次）：盖住整屏避免和暂停菜单叠着显示
+    Rectangle {
+        id: breakOverlay
+        anchors.fill: parent
+        visible: breakPrompt
+        color: "#F20E1418"
+        z: 72
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 16
+
+            Text {
+                text: "👁"
+                font.pixelSize: 40
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: "休息一下"
+                color: "#cfe9f2"
+                font.pixelSize: 22
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: "已经玩了 " + root.breakReminderMinutes + " 分钟\n"
+                      + "抬头看 6 米外的地方，眨眨眼\n"
+                      + "盯着屏幕时眨眼次数会掉到平时的三分之一，\n"
+                      + "泪膜一破就是刺痛和流泪"
+                color: "#9fb6c2"
+                font.pixelSize: 13
+                lineHeight: 1.3
+                horizontalAlignment: Text.AlignHCenter
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: root.breakCountdown > 0 ? (root.breakCountdown + " 秒") : "可以继续了"
+                color: root.breakCountdown > 0 ? "#ffd95a" : "#8dd3dd"
+                font.pixelSize: 18
+                font.bold: true
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Button {
+                width: 170
+                anchors.horizontalCenter: parent.horizontalCenter
+                onClicked: {
+                    breakCountTimer.stop()
+                    breakPrompt = false
+                    resumeGame()
+                }
+
+                background: Rectangle {
+                    radius: 8
+                    color: "#2f7d8c"
+                    border.width: 1
+                    border.color: "#a8e6ef"
+                }
+
+                contentItem: Text {
+                    text: "继续游戏"
+                    color: "white"
+                    font.pixelSize: 15
+                    horizontalAlignment: Text.AlignHCenter
+                    verticalAlignment: Text.AlignVCenter
+                }
+            }
+        }
+    }
+
     Rectangle {
         anchors.fill: parent
         visible: isPaused
@@ -3972,8 +4198,10 @@ ApplicationWindow {
         }
 
         Rectangle {
+            id: settingsPanel
             width: 290
-            height: 600
+            // 高度跟随屏幕：矮屏（16:9 手机）上原来的固定 600 会顶到屏幕边缘
+            height: Math.min(620, parent.height - 36)
             radius: 14
             color: "#2a2a2a"
             border.width: 1
@@ -3985,9 +4213,21 @@ ApplicationWindow {
                 anchors.fill: parent
             }
 
+            // 选项多了以后必须能滚：矮屏 + 新手势提示行加起来会超出一屏
+            Flickable {
+                id: settingsFlick
+                anchors.fill: parent
+                anchors.margins: 12
+                contentWidth: width
+                contentHeight: settingsColumn.height
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+                clip: true
+
             Column {
-                anchors.centerIn: parent
-                spacing: 13
+                id: settingsColumn
+                width: settingsFlick.width
+                spacing: 11
 
                 Text {
                     text: "已暂停"
@@ -4008,6 +4248,38 @@ ApplicationWindow {
                             if (typeof Diagnostics !== "undefined") diagText = Diagnostics.tail(150)
                         }
                     }
+                }
+
+                // 护眼模式放在菜单第一行：这是「玩一会儿眼睛刺痛/流泪」时唯一需要点的开关
+                Button {
+                    width: 250
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: eyeCare = !eyeCare
+
+                    background: Rectangle {
+                        radius: 8
+                        color: eyeCare ? "#2f7d8c" : "#3a3a3a"
+                        border.width: 1
+                        border.color: eyeCare ? "#a8e6ef" : "#666666"
+                    }
+
+                    contentItem: Text {
+                        text: eyeCare ? "👁 护眼模式：开" : "👁 护眼模式：关"
+                        color: "white"
+                        font.pixelSize: 15
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Text {
+                    text: eyeCare
+                          ? "低饱和配色 · 无闪光震屏 · 平滑下落\n每 " + breakReminderMinutes + " 分钟提醒休息"
+                          : "眼睛容易累时打开"
+                    color: eyeCare ? "#8dd3dd" : "#888888"
+                    font.pixelSize: 11
+                    horizontalAlignment: Text.AlignHCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
                 }
 
                 Row {
@@ -4303,6 +4575,7 @@ ApplicationWindow {
                     horizontalAlignment: Text.AlignHCenter
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
+            }
             }
         }
     }
