@@ -140,7 +140,7 @@ ApplicationWindow {
     property bool recapCompact: false     // 结算页折叠态（点头部切换）
     property int dangerLv: 0              // 危险三段：1=顶部6行有块 2=顶部4行 3=顶部2行（命令式更新）
 
-    // 连击能量槽（连击保鲜）：消行回满 100，落锁不消行随时间衰减（满槽 5 秒），
+    // 连击能量槽（连击保鲜）：消行回满 100，落锁不消行随时间衰减（满槽 8 秒），
     // 归零连击结束。衰减用 100ms 游戏时钟累计，暂停即停（单调游戏时钟）。
     property real comboEnergy: 0
     Timer {
@@ -148,7 +148,7 @@ ApplicationWindow {
         interval: 100
         running: !isPaused && !isGameOver && comboEnergy > 0
         onTriggered: {
-            comboEnergy = Math.max(0, comboEnergy - 2)
+            comboEnergy = Math.max(0, comboEnergy - 1.25)   // 100/8s = 12.5每秒
             if (comboEnergy === 0) {
                 comboStreak = 0
                 comboDisplayText = ""
