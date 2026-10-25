@@ -1989,8 +1989,8 @@ ApplicationWindow {
         }
     }
 
-    // 棋盘下移量：手势模式顶部元素已紧凑化，棋盘整体上移给拇指留余量
-    readonly property int boardTopOffset: opMode === "gestures" ? 0 : 8
+    // 棋盘下移量：手势模式整体上移（负值=上移），给棋盘底部留出拇指余量
+    readonly property int boardTopOffset: opMode === "gestures" ? -36 : 8
 
     Column {
         id: mainColumn
@@ -2118,8 +2118,8 @@ ApplicationWindow {
                 }
 
                 Rectangle {
-                    width: 64
-                    height: 30
+                    width: 72
+                    height: 32
                     radius: 8
                     color: "#2f2f2fb0"
                     border.width: 1
@@ -2150,18 +2150,18 @@ ApplicationWindow {
                 }
             }
 
-            // 右侧：下一个方块预览；手势模式暂存框并列其右（紧凑化，棋盘上移）
-            Row {
+            // 右侧：下一个方块预览（标签在框外上方）
+            Column {
                 id: nextPreviewColumn
-                spacing: 6
+                spacing: 2
+                width: 84
                 anchors.verticalCenter: parent.verticalCenter
-                width: opMode === "gestures" ? nextPreview.width + holdPreview.width + spacing
-                                              : nextPreview.width
 
                 Rectangle {
                     id: nextPreview
                     width: 4 * 18
                     height: 4 * 18
+                    anchors.horizontalCenter: parent.horizontalCenter
                     radius: 8
                     color: "#202020"
                     border.color: "#707070"
@@ -2195,11 +2195,10 @@ ApplicationWindow {
 
                 // 暂存指示（手势模式下可见：上滑暂存/调出，用过置灰）
                 Rectangle {
-                    id: holdPreview
                     visible: opMode === "gestures"
                     width: 4 * 13
                     height: 4 * 13
-                    anchors.verticalCenter: parent.verticalCenter
+                    anchors.horizontalCenter: parent.horizontalCenter
                     radius: 8
                     color: "#202020"
                     border.color: canHold ? "#707070" : "#3a3a3a"
@@ -2237,37 +2236,37 @@ ApplicationWindow {
 
         Item {
             width: 1
-            height: 8
+            height: 13
         }
 
         // 游戏画布区域
 
-        // 连击能量槽卡片：横铺棋盘上方（紧凑化：54px，消行回满 / 随时间衰减）
+        // 连击能量槽卡片：横铺棋盘上方（连击 ≥2 显示），消行回满 / 随时间衰减
         Rectangle {
             id: energyCard
             visible: true                          // 常驻：无连击时槽为空
             width: gameBoard.width
-            height: 54
-            radius: 9
+            height: 68
+            radius: 10
             color: "#F0141414"
             border.color: comboEnergy > 25 ? "#ff7a18" : "#ff4444"
             border.width: 1
 
             Column {
                 anchors.fill: parent
-                anchors.margins: 4
-                spacing: 3
+                anchors.margins: 6
+                spacing: 4
 
                 Item {
                     width: parent.width
-                    height: 15
+                    height: 18
 
                     Text {
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         text: "COMBO × " + comboStreak
                         color: "#f5f1e8"
-                        font.pixelSize: 14
+                        font.pixelSize: 15
                         font.bold: true
                     }
                     Text {
@@ -2275,47 +2274,46 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "连击状态"
                         color: "#ff9e3d"
-                        font.pixelSize: 11
+                        font.pixelSize: 12
                     }
                 }
 
                 Rectangle {
                     width: parent.width
-                    height: 8
-                    radius: 4
+                    height: 10
+                    radius: 5
                     color: "#333333"
                     Rectangle {
                         width: parent.width * comboEnergy / 100
                         height: parent.height
-                        radius: 4
+                        radius: 5
                         color: comboEnergy > 25 ? "#ff7a18" : "#ff4444"
                     }
                 }
 
                 Item {
                     width: parent.width
-                    height: 14
+                    height: 16
 
                     Rectangle {
-                        width: 14
-                        height: 14
+                        width: 16
+                        height: 16
                         radius: 4
                         anchors.left: parent.left
-                        anchors.verticalCenter: parent.verticalCenter
                         color: "#ff7a18"
                         Text {
                             anchors.centerIn: parent
                             text: "🔥"
-                            font.pixelSize: 9
+                            font.pixelSize: 10
                         }
                     }
                     Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: 20
+                        anchors.leftMargin: 22
                         anchors.verticalCenter: parent.verticalCenter
                         text: "连击能量： " + Math.round(comboEnergy) + "%"
                         color: "#f5f1e8"
-                        font.pixelSize: 11
+                        font.pixelSize: 12
                     }
                 }
             }
