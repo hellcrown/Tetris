@@ -489,6 +489,13 @@ int main(int argc, char *argv[])
         else if (a == QLatin1String("--preset") && i + 1 < argc)
             demoPreset = QString::fromLocal8Bit(argv[++i]);
     }
+    // 环境变量形式等价（计划契约 TETRIS_DEMO/TETRIS_SHOT/TETRIS_PRESET），命令行参数优先
+    if (demoScene.isEmpty())
+        demoScene = qEnvironmentVariable("TETRIS_DEMO");
+    if (shotDir.isEmpty())
+        shotDir = qEnvironmentVariable("TETRIS_SHOT");
+    if (demoPreset.isEmpty())
+        demoPreset = qEnvironmentVariable("TETRIS_PRESET");
 
     // 诊断日志：>400KB 轮转为 .old；消息经 diagMessageHandler 逐行落盘
     {
