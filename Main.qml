@@ -796,6 +796,10 @@ ApplicationWindow {
                 // 结算页验收：预置战绩与徽章 → 展开态 / 折叠态 / 战绩页徽章成就区
                 if (demoStep === 0) {
                     score = 4136
+                    // 预置全解锁必须在 scoreTarget 赋值前：其变更回调会立即触发解锁检查
+                    var allIds = []
+                    for (var ti = 0; ti < bgThemes.length; ti++) allIds.push(bgThemes[ti].id)
+                    savedUnlocks = allIds
                     scoreTarget = 4820
                     totalClearedLines = 38
                     maxCombo = 6
@@ -806,7 +810,14 @@ ApplicationWindow {
                     savedBadges = [
                         { id: "clutch", n: 12, ts: 0 },
                         { id: "flow", n: 3, ts: 0 },
-                        { id: "precise", n: 4, ts: 0 }
+                        { id: "precise", n: 4, ts: 0 },
+                        { id: "survivor", n: 2, ts: 0 },
+                        { id: "tetris2", n: 2, ts: 0 },
+                        { id: "combo10", n: 1, ts: 0 },
+                        { id: "lines30", n: 2, ts: 0 },
+                        { id: "score10k", n: 1, ts: 0 },
+                        { id: "flash10", n: 5, ts: 0 },
+                        { id: "lines100", n: 1, ts: 0 }
                     ]
                     isGameOver = true
                     shoot("recap")
@@ -974,10 +985,25 @@ ApplicationWindow {
 
     // ---- 阶段5：过程徽章 + 小徽章 toast（局内里程碑复用同一 toast）----
     readonly property var badgeDefs: ({
-        "clutch":  { icon: "🛡️", name: "极限救场", hint: "在危险态（堆叠进入顶部 4 行）完成消行" },
-        "flow":    { icon: "🌊", name: "流畅操作", hint: "连续 6 次消行未进入危险区" },
-        "precise": { icon: "🎯", name: "精准落位", hint: "锁定的方块恰好全部被消去" }
+        "clutch":   { icon: "🛡️", name: "极限救场", hint: "在危险态（堆叠进入顶部 4 行）完成消行" },
+        "flow":     { icon: "🌊", name: "流畅操作", hint: "连续 6 次消行未进入危险区" },
+        "precise":  { icon: "🎯", name: "精准落位", hint: "锁定的方块恰好全部被消去" },
+        "survivor": { icon: "⛑️", name: "逆风翻盘", hint: "从「即将失败」边缘回到安全区" },
+        "tetris2":  { icon: "💎", name: "双响炮", hint: "单局打出 2 次四行消除" },
+        "combo10":  { icon: "🔥", name: "连击大师", hint: "单局连击达到 10" },
+        "lines30":  { icon: "🧱", name: "高产一局", hint: "单局累计消行 ≥ 30" },
+        "score10k": { icon: "💰", name: "万分单局", hint: "单局得分 ≥ 10000" },
+        "flash10":  { icon: "⚡", name: "闪电战", hint: "开局 60 秒内消行 ≥ 10" },
+        "lines100": { icon: "🎖️", name: "百行斩", hint: "累计消行达到 100" },
+        "veteran":  { icon: "🎗️", name: "老兵", hint: "累计完成 50 局" },
+        "best10k":  { icon: "👑", name: "万分俱乐部", hint: "历史最高分 ≥ 10000" }
     })
+    // 展示顺序：操作技巧 → 单局里程碑 → 生涯成就
+    readonly property var badgeOrder: [
+        "clutch", "flow", "precise", "survivor", "tetris2", "combo10",
+        "lines30", "score10k", "flash10", "lines100", "veteran", "best10k"
+    ]
+    property bool surviveArmed: false     // 本局曾进入危险三段（逆风翻盘判定用）
     function earnBadge(id) {
         for (var i = 0; i < gameBadges.length; i++)
             if (gameBadges[i] === id) return
@@ -1188,7 +1214,10 @@ ApplicationWindow {
                 }
         return 0
     }
-    function refreshDanger() { dangerLv = dangerLevel() }
+    function refreshDanger() {
+        dangerLv = dangerLevel()
+        if (dangerLv >= 3) surviveArmed = true   // 曾抵达「即将失败」，为逆风翻盘蓄势
+    }
 
     // 移动/旋转前的当前形态快照（残影）
     function spawnAfterimage() {
@@ -1298,6 +1327,7 @@ ApplicationWindow {
         b2bCount = 0
         gameBadges = []
         cleanClearStreak = 0
+        surviveArmed = false
         newUnlocks = 0
         recapCompact = false
         dangerLv = 0
@@ -1402,6 +1432,11 @@ ApplicationWindow {
         clearLines()
         refreshGrid()
         refreshDanger()
+        // 逆风翻盘：曾进入危险三段，本次落锁消行后回到安全区
+        if (surviveArmed && dangerLv <= 1 && !isGameOver) {
+            surviveArmed = false
+            earnBadge("survivor")
+        }
         spawnPiece()
     }
 
@@ -1514,6 +1549,12 @@ ApplicationWindow {
             triggerScreenShake(linesCleared)
             triggerComboCenterBurst(comboStreak)
         }
+        // 单局里程碑徽章（条件严格可复现；earnBadge 内部按局去重 + 永久计数）
+        if (playSeconds <= 60 && totalClearedLines >= 10) earnBadge("flash10")
+        if (totalClearedLines >= 30) earnBadge("lines30")
+        if (scoreTarget >= 10000) earnBadge("score10k")
+        if (comboStreak >= 10) earnBadge("combo10")
+        if (tetrisCount >= 2) earnBadge("tetris2")
         vibe(linesCleared >= 4 ? 70 : 35)
         scoreTimer.start()
     }
@@ -1707,6 +1748,10 @@ ApplicationWindow {
         totalLinesAll += totalClearedLines
         totalSecondsAll += playSeconds
         maxComboAll = Math.max(maxComboAll, maxCombo)
+        // 生涯成就（累计值达标即解锁，终身保留）
+        if (totalLinesAll >= 100) earnBadge("lines100")
+        if (totalGames >= 50) earnBadge("veteran")
+        if (bestScore >= 10000) earnBadge("best10k")
         // 已有名字则本局成绩自动上榜（真实行数/用时），失败仍可手动点按钮重提
         if (playerName !== "" && scoreTarget > 0)
             submitScore()
@@ -3631,7 +3676,7 @@ ApplicationWindow {
                     }
                 }
 
-                // 徽章成就（永久解锁制：像成就一样收集，点菜单「战绩」随时回看）
+                // 徽章成就（永久解锁制：像成就一样收集，列表可滑动，点菜单「战绩」随时回看）
                 Rectangle { width: parent.width; height: 1; color: "#4a4a4a" }
 
                 Text {
@@ -3641,45 +3686,60 @@ ApplicationWindow {
                     font.bold: true
                 }
 
-                Repeater {
-                    model: ["clutch", "flow", "precise"]
-                    delegate: Row {
+                ScrollView {
+                    width: parent.width
+                    height: 330
+                    contentWidth: width
+                    contentHeight: badgeListCol.implicitHeight
+                    clip: true
+                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
+
+                    Column {
+                        id: badgeListCol
                         width: parent.width
-                        spacing: 10
-                        property var bdef: root.badgeDefs[modelData]
-                        property var brec: root.badgeRecord(modelData)
-                        property bool earned: brec !== null
+                        spacing: 12
 
-                        Text {
-                            text: bdef.icon
-                            font.pixelSize: 22
-                            opacity: earned ? 1.0 : 0.25
-                            anchors.verticalCenter: parent.verticalCenter
-                        }
+                        Repeater {
+                            model: root.badgeOrder
+                            delegate: Row {
+                                width: parent.width
+                                spacing: 10
+                                property var bdef: root.badgeDefs[modelData]
+                                property var brec: root.badgeRecord(modelData)
+                                property bool earned: brec !== null
 
-                        Column {
-                            spacing: 1
-                            width: parent.width - 42
-
-                            Row {
-                                spacing: 6
                                 Text {
-                                    text: bdef.name
-                                    color: earned ? "#ffe9a8" : "#777777"
-                                    font.pixelSize: 13
-                                    font.bold: earned
+                                    text: bdef.icon
+                                    font.pixelSize: 22
+                                    opacity: earned ? 1.0 : 0.25
+                                    anchors.verticalCenter: parent.verticalCenter
                                 }
-                                Text {
-                                    text: earned ? "×" + brec.n : ""
-                                    color: "#ffd95a"
-                                    font.pixelSize: 12
-                                    font.bold: true
+
+                                Column {
+                                    spacing: 1
+                                    width: parent.width - 42
+
+                                    Row {
+                                        spacing: 6
+                                        Text {
+                                            text: bdef.name
+                                            color: earned ? "#ffe9a8" : "#777777"
+                                            font.pixelSize: 13
+                                            font.bold: earned
+                                        }
+                                        Text {
+                                            text: earned ? "×" + brec.n : ""
+                                            color: "#ffd95a"
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                        }
+                                    }
+                                    Text {
+                                        text: earned ? ("累计达成 " + brec.n + " 次") : bdef.hint
+                                        color: earned ? "#B9C4C8" : "#666666"
+                                        font.pixelSize: 11
+                                    }
                                 }
-                            }
-                            Text {
-                                text: earned ? ("累计达成 " + brec.n + " 次") : bdef.hint
-                                color: earned ? "#B9C4C8" : "#666666"
-                                font.pixelSize: 11
                             }
                         }
                     }
