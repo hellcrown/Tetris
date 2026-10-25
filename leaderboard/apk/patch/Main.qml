@@ -835,6 +835,8 @@ ApplicationWindow {
             } else if (demoScene === "badge") {
                 isPaused = false
                 if (demoStep === 0) {
+                    b2bActive = true
+                    comboStreak = 0
                     showToast("🛡️", "极限救场")
                 } else if (demoStep === 1) {
                     shoot("badge")
@@ -2353,6 +2355,29 @@ ApplicationWindow {
                 styleColor: "#000000"
             }
 
+            // B2B 待命角标：上一次消行为四消，×1.5 加成待命（连击 ≥2 时由燃烧边框表达）
+            Rectangle {
+                visible: b2bActive && comboStreak < 2 && !isGameOver
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.margins: 6
+                z: 30   // 声明序在网格画布之前，需提层否则被不透明格底盖住
+                width: b2bTagText.implicitWidth + 12
+                height: 20
+                radius: 10
+                color: "#E6141408"
+                border.color: "#ffd95a"
+                border.width: 1
+                Text {
+                    id: b2bTagText
+                    anchors.centerIn: parent
+                    text: "B2B"
+                    color: "#ffd95a"
+                    font.pixelSize: 11
+                    font.bold: true
+                }
+            }
+
             // 1. 静态棋盘网格（不参与消行回弹）
             Repeater {
                 model: rows
@@ -2821,23 +2846,23 @@ ApplicationWindow {
                 velocity: AngleDirection { angle: 270; angleVariation: 48; magnitude: 190; magnitudeVariation: 90 }
             }
 
-            // 13. 连击燃烧边框（分级：2-3 橙 / 4-6 红橙 / 7+ 烈焰红；B2B 时金色优先）
+            // 13. 连击燃烧边框（分级：2-3 橙 / 4-6 红橙 / 7+ 烈焰红）。
+            // B2B 待命不占边框——由左上角「B2B」金色角标表达
             Rectangle {
                 anchors.fill: parent
                 color: "transparent"
                 radius: 2
                 border.width: comboStreak >= 7 ? 8 : comboStreak >= 4 ? 6 : 4
                 border.color: {
-                    if (b2bActive) return "#ffd95a"
                     if (comboStreak >= 7) return "#ff2a2a"
                     if (comboStreak >= 4) return "#ff5a2a"
                     return "#ff7a18"
                 }
-                visible: comboStreak >= 2 || b2bActive
+                visible: comboStreak >= 2
                 opacity: 0.6
 
                 SequentialAnimation on opacity {
-                    running: (comboStreak >= 2 || b2bActive) && !isPaused && !reduceMotion
+                    running: comboStreak >= 2 && !isPaused && !reduceMotion
                     loops: Animation.Infinite
                     NumberAnimation {
                         to: 0.95
