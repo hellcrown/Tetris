@@ -1989,8 +1989,9 @@ ApplicationWindow {
         }
     }
 
-    // 棋盘下移量：手势模式整体上移（负值=上移），给棋盘底部留出拇指余量
-    readonly property int boardTopOffset: opMode === "gestures" ? -36 : 8
+    // 棋盘下移量：手势模式整体上移（负值=上移）。-16 约上移 36px：
+    // 顶部预览框不碰状态栏，棋盘底部又留出拇指余量
+    readonly property int boardTopOffset: opMode === "gestures" ? -16 : 8
 
     Column {
         id: mainColumn
