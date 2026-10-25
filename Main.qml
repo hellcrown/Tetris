@@ -177,7 +177,7 @@ ApplicationWindow {
     readonly property int  breakReminderMinutes: 20                            // 休息提醒间隔（分钟）
     property bool fxSurge: false           // P1 大事件进行中：背景/氛围层让位（压暗+减速）
     property double bigFxUntil: 0          // Tetris 大演出占用期（解锁演出让位，避免同帧撞车）
-    property string pendingUnlock: ""      // 暂缓的背景解锁主题名
+    property var unlockQueue: []           // 待播的背景解锁演出队列（一次跨多门槛时逐个庆祝）
     property bool tetrisB2b: false
     property int tetrisEarned: 0
     property bool permAttempted: false   // 安装权限引导只跳一次设置，之后直接尝试
@@ -192,7 +192,8 @@ ApplicationWindow {
     Timer {
         id: unlockDelayTimer
         interval: 1000
-        onTriggered: if (pendingUnlock !== "") showUnlockCelebrate(pendingUnlock)
+        repeat: true
+        onTriggered: pumpUnlockQueue()
     }
 
     // ---- 阶段5/6：危险预警 · 徽章 · 里程碑 · 结算回忆 ----
@@ -258,22 +259,37 @@ ApplicationWindow {
         return "qrc:/bg" + (bgThemeIndex(id) + 1) + ".jpg"
     }
     function checkBgUnlocks() {
-        var latest = ""
+        // 一次分数更新可能跨过多个门槛：全部解锁、全部计数、演出入队逐个播
+        var fresh = []
         for (var i = 0; i < bgThemes.length; i++) {
             var t = bgThemes[i]
             if (savedUnlocks.indexOf(t.id) === -1 && scoreTarget >= t.need) {
                 savedUnlocks.push(t.id)
-                latest = t.name
+                fresh.push(t.name)
             }
         }
-        if (latest !== "") {
+        if (fresh.length > 0) {
             savedUnlocks = savedUnlocks.slice()  // 重新赋值触发 Settings 持久化
-            newUnlocks++                         // 结算页"新收藏"统计格
-            if (Date.now() < bigFxUntil)
-                pendingUnlock = latest           // 四消大演出中：解锁演出延迟让位
-            else
-                showUnlockCelebrate(latest)
+            newUnlocks += fresh.length           // 结算页"新收藏"按真实解锁数统计
+            for (var f = 0; f < fresh.length; f++)
+                unlockQueue.push(fresh[f])
+            console.warn("[Unlock] 本轮解锁 " + fresh.length + " 个: " + fresh.join("、")
+                         + "，队列剩余 " + unlockQueue.length)
+            pumpUnlockQueue()
         }
+    }
+    // 解锁演出泵：大演出进行中让位（重启续播定时器，1s 后 bigFxUntil 已过期）；
+    // 每个庆祝动画收尾时由 ScriptAction 经 Qt.callLater 续播下一个
+    function pumpUnlockQueue() {
+        if (unlockQueue.length === 0) {
+            unlockDelayTimer.stop()
+            return
+        }
+        if (Date.now() < bigFxUntil) {
+            unlockDelayTimer.restart()   // 修复：原设计此定时器从未被启动，让位后演出永远不播
+            return
+        }
+        showUnlockCelebrate(unlockQueue.shift())
     }
     function showUnlockCelebrate(latest) {
         // 成就演出：背景渐变 + 星星扩散 + 主题名弹出
@@ -961,6 +977,24 @@ ApplicationWindow {
                     showToast("🛡️", "极限救场")
                 } else if (demoStep === 1) {
                     shoot("badge")
+                } else {
+                    demoTimer.stop()
+                    Qt.quit()
+                }
+            } else if (demoScene === "unlockq") {
+                // 解锁队列验收：一步跨多门槛 → 全部解锁入队逐个庆祝 + newUnlocks 计真数
+                isPaused = false
+                if (demoStep === 0) {
+                    newUnlocks = 0
+                    savedUnlocks = ["t01"]
+                    scoreTarget = 10000      // onScoreTargetChanged → checkBgUnlocks：一次跨全部门槛
+                    shoot("unlockq-0")
+                } else if (demoStep <= 3) {
+                    shoot("unlockq-" + demoStep)   // +0.4/0.8/1.2s：庆祝应逐个换主题
+                } else if (demoStep === 4) {
+                    console.warn("[UnlockQ] newUnlocks=" + newUnlocks
+                                 + " 队列剩余=" + unlockQueue.length)
+                    shoot("unlockq-end")
                 } else {
                     demoTimer.stop()
                     Qt.quit()
@@ -2071,7 +2105,7 @@ ApplicationWindow {
             NumberAnimation { target: unlockCelebrateLabel; property: "opacity"; to: 0; duration: 450; easing.type: Easing.InQuad }
             NumberAnimation { target: unlockGradient; property: "opacity"; to: 0; duration: 450 }
         }
-        ScriptAction { script: unlockCelebrate.visible = false }
+        ScriptAction { script: { unlockCelebrate.visible = false; Qt.callLater(pumpUnlockQueue) } }
     }
 
     Item {
