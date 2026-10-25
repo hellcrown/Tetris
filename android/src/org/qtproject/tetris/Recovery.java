@@ -1,0 +1,105 @@
+// 锁屏恢复兜底（卓易通容器专用）：解锁后 Surface 不回传导致黑屏时，
+// 由 Java 侧 Handler 计时逐级恢复。Qt 侧每帧调用 noteFrame() 取消计时；
+// 帧没恢复则 1.5s 重开 Activity（等效手动重开，实测有效）→ 5s 杀进程+闹钟拉起。
+// 不用 Qt 定时器：Surface 丢失后 Qt 定时器/帧回调在容器内不可靠。
+package org.qtproject.tetris;
+
+import android.app.Activity;
+import android.app.AlarmManager;
+import android.app.PendingIntent;
+import android.content.Context;
+import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Process;
+import android.util.Log;
+
+public class Recovery {
+    private static final String TAG = "TetrisDiag";
+    private static final Handler h = new Handler(Looper.getMainLooper());
+    private static Activity act;
+    private static long armedAt;
+
+    // 把恢复梯动作追加到 Qt 侧同一份日志文件（外部目录，用户可导出回传）
+    private static void appendLog(String line) {
+        try {
+            Activity a = act;
+            Context c = a != null ? a.getApplicationContext() : null;
+            if (c == null)
+                return;
+            java.io.File dir = c.getExternalFilesDir(null);
+            if (dir == null)
+                return;
+            java.io.FileWriter w = new java.io.FileWriter(
+                    new java.io.File(dir, "tetris-debug.log"), true);
+            String ts = new java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US)
+                    .format(new java.util.Date());
+            w.write(ts + " INFO  Recovery(java): " + line + "\n");
+            w.close();
+        } catch (Exception e) { }
+        Log.i(TAG, "[Recovery] " + line);
+    }
+
+    public static void arm(Context c) {
+        try {
+            act = (Activity) c;
+            armedAt = System.currentTimeMillis();
+            h.removeCallbacksAndMessages(null);
+            h.postDelayed(new Runnable() { public void run() { step1(); } }, 3000);
+            h.postDelayed(new Runnable() { public void run() { step2(); } }, 8000);
+            appendLog("[Recovery] 已武装（3s 重开 Activity / 8s 杀进程+闹钟拉起）");
+        } catch (Exception e) {
+            appendLog("[Recovery] arm 失败: " + e);
+        }
+    }
+
+    public static void noteFrame() {
+        if (act == null)
+            return;   // 未武装时的高频调用直接跳过
+        cancel();
+        appendLog("[Recovery] 帧已恢复，解除兜底");
+    }
+
+    public static void cancel() {
+        act = null;
+        h.removeCallbacksAndMessages(null);
+    }
+
+    private static void step1() {
+        Activity a = act;
+        if (a == null || a.isFinishing())
+            return;
+        appendLog("[Recovery] 解锁后无帧，重开 Activity 重获 Surface");
+        try {
+            Intent i = new Intent(a, a.getClass());
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            a.startActivity(i);
+            a.finish();
+        } catch (Exception e) {
+            appendLog("[Recovery] 重开失败: " + e);
+        }
+    }
+
+    private static void step2() {
+        appendLog("[Recovery] 重开 Activity 仍无帧，杀进程并用闹钟自动拉起");
+        try {
+            Activity a = act;
+            Context c = a != null ? a.getApplicationContext() : null;
+            if (c != null) {
+                Intent i = c.getPackageManager().getLaunchIntentForPackage(c.getPackageName());
+                if (i != null) {
+                    i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                    PendingIntent pi = PendingIntent.getActivity(c, 0, i,
+                            PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                    AlarmManager am = (AlarmManager) c.getSystemService(Context.ALARM_SERVICE);
+                    if (am != null)
+                        am.set(AlarmManager.RTC, System.currentTimeMillis() + 800, pi);
+                }
+                a.finishAffinity();
+            }
+        } catch (Exception e) {
+            appendLog("[Recovery] 闹钟拉起失败，需手动重开: " + e);
+        }
+        Process.killProcess(Process.myPid());
+    }
+}

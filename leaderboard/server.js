@@ -102,10 +102,59 @@ function readBody(req, cb) {
   })
 }
 
+// APK 在线更新：apk/ 目录下放 tetris-latest.apk + version.json（code/name/file）
+const APK_DIR = path.join(__dirname, 'apk')
+
 const server = http.createServer((req, res) => {
   const xff = String(req.headers['x-forwarded-for'] || '')
   const ip = (xff.split(',').pop().trim()) || req.socket.remoteAddress || '?'
   const url = req.url || ''
+
+  // QML 热更补丁：元数据单一真源是 apk/patch/patch.json（ver/minApk）。
+  // /version 响应自动注入 qmlVer/qmlMinApk（客户端只查 /version，避免每次拉 QML 全文）；
+  // /patch/info 按需返回 QML 全文，客户端 saveText 写入 files/patch/Main.qml 重启生效
+  const patchMeta = (() => {
+    try {
+      const p = JSON.parse(fs.readFileSync(path.join(APK_DIR, 'patch', 'patch.json'), 'utf8'))
+      return { qmlVer: p.ver || 0, qmlMinApk: p.minApk || 0 }
+    } catch (e) {
+      return { qmlVer: 0, qmlMinApk: 0 }
+    }
+  })()
+  if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/patch/info') {
+    try {
+      const qml = fs.readFileSync(path.join(APK_DIR, 'patch', 'Main.qml'), 'utf8')
+      return send(res, 200, { ok: true, ...patchMeta, qml: qml })
+    } catch (e) {
+      return send(res, 200, { ok: true, qmlVer: 0, qmlMinApk: 0 })
+    }
+  }
+  if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/version') {
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(APK_DIR, 'version.json'), 'utf8'))
+      if (!meta.size && meta.file) {
+        // size 缺失/为 0 时按 APK 实际体积补：客户端用它免重复下载已缓存的安装包
+        try { meta.size = fs.statSync(path.join(APK_DIR, meta.file)).size } catch (e) { }
+      }
+      return send(res, 200, { ...meta, ...patchMeta })
+    } catch (e) {
+      return send(res, 200, { ok: true, code: 0, name: '', file: '', ...patchMeta })
+    }
+  }
+
+  if (req.method === 'GET' && url.startsWith('/tetris/api/apk/')) {
+    const name = url.slice('/tetris/api/apk/'.length).replace(/[\/\\]/g, '')
+    const f = path.join(APK_DIR, name)
+    if (!fs.existsSync(f)) return send(res, 404, { ok: false, error: 'NO_APK' })
+    res.writeHead(200, {
+      'Content-Type': 'application/vnd.android.package-archive',
+      'Content-Length': fs.statSync(f).size,
+      'Content-Disposition': 'attachment; filename="' + name + '"',
+      'X-Accel-Buffering': 'no'
+    })
+    fs.createReadStream(f).pipe(res)
+    return
+  }
 
   if (req.method === 'GET' && url === '/tetris/api/health') {
     return send(res, 200, { ok: true, players: entries.length })
@@ -140,10 +189,24 @@ const server = http.createServer((req, res) => {
       if (!(lines >= 0 && lines <= 99999)) return send(res, 400, { ok: false, error: 'BAD_LINES' })
       if (!(time >= 5 && time <= 864000)) return send(res, 400, { ok: false, error: 'BAD_TIME' })
 
+      // uid 过户（旧随机 uid → 设备稳定 uid）：新 uid 不存在时把旧条目并入，
+      // 老玩家升级后成绩不丢、不产生同名分家
+      const adopt = typeof body.adopt === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(body.adopt)
+        ? body.adopt : ''
+      if (adopt && adopt !== uid && !entries.some(e => e.uid === uid)) {
+        const old = entries.find(e => e.uid === adopt)
+        if (old) {
+          old.uid = uid
+          save()
+        }
+      }
+
       const existing = entries.find(e => e.uid === uid)
       if (existing) {
-        // 更好才覆盖（同分比用时）
-        if (score > existing.score || (score === existing.score && time < existing.time)) {
+        // 更好才覆盖（同分比用时）。行数不得倒退：旧客户端补录发过 0行/5秒 的假数据，
+        // 没这道防线时“同分+更短时间”会把真实行数洗成 0
+        if (score > existing.score ||
+            (score === existing.score && time < existing.time && lines >= existing.lines)) {
           existing.name = name
           existing.score = score
           existing.lines = lines

@@ -1,12 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     package="org.qtproject.tetris"
-    android:versionCode="24"
-    android:versionName="3.1">
+    android:versionCode="76"
+    android:versionName="3.6-beta.19">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Android 11+ 包可见性：让应用能检测系统安装器是否可处理 APK。
+         必须带 scheme（安装器 filter 要求 content/file + mime 同时匹配），
+         否则解析不到安装器 → resolveActivity 返回 null → 静默跳过视图通道 -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="content" android:mimeType="application/vnd.android.package-archive" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="file" android:mimeType="application/vnd.android.package-archive" />
+        </intent>
+    </queries>
 
     <application
         android:name="org.qtproject.qt.android.bindings.QtApplication"
@@ -16,6 +31,16 @@
         android:label="俄罗斯方块"
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true">
+
+        <provider
+            android:name="org.qtproject.tetris.ApkPrv"
+            android:authorities="org.qtproject.tetris.apk"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <receiver
+            android:name="org.qtproject.tetris.InstallRc"
+            android:exported="false" />
 
         <activity
             android:name="org.qtproject.qt.android.bindings.QtActivity"

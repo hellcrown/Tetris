@@ -31,7 +31,8 @@ qt_add_qml_module(Tetris
 )
 
 # 可解锁背景：backgrounds/ 下命名 bg1.jpg ~ bg12.jpg，构建时自动打包（qrc:/bgN.jpg）
-file(GLOB TETRIS_BACKGROUNDS "${CMAKE_CURRENT_SOURCE_DIR}/backgrounds/*.jpg")
+# CONFIGURE_DEPENDS：新增/删除图片后构建系统自动重新 glob，无需手动重跑 CMake
+file(GLOB TETRIS_BACKGROUNDS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/backgrounds/*.jpg")
 if(TETRIS_BACKGROUNDS)
     qt_add_resources(Tetris "tetris_backgrounds"
         PREFIX "/"
