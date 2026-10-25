@@ -842,6 +842,17 @@ ApplicationWindow {
                     demoTimer.stop()
                     Qt.quit()
                 }
+            } else if (demoScene === "gesture") {
+                // 手势模式布局验收：暂存框并排 + 紧凑能量卡 + 棋盘上移
+                isPaused = false
+                if (demoStep === 0) {
+                    opMode = "gestures"
+                    demoSetupTetris()
+                    shoot("gesture-layout")
+                } else {
+                    demoTimer.stop()
+                    Qt.quit()
+                }
             } else {
                 demoTimer.stop()
             }
@@ -1978,8 +1989,8 @@ ApplicationWindow {
         }
     }
 
-    // 棋盘下移量：按键模式少量腾出能量条空间；手势模式底部无按钮，下移更多
-    readonly property int boardTopOffset: opMode === "gestures" ? 20 : 8
+    // 棋盘下移量：手势模式顶部元素已紧凑化，棋盘整体上移给拇指留余量
+    readonly property int boardTopOffset: opMode === "gestures" ? 0 : 8
 
     Column {
         id: mainColumn
@@ -2107,8 +2118,8 @@ ApplicationWindow {
                 }
 
                 Rectangle {
-                    width: 72
-                    height: 32
+                    width: 64
+                    height: 30
                     radius: 8
                     color: "#2f2f2fb0"
                     border.width: 1
@@ -2139,18 +2150,18 @@ ApplicationWindow {
                 }
             }
 
-            // 右侧：下一个方块预览（标签在框外上方）
-            Column {
+            // 右侧：下一个方块预览；手势模式暂存框并列其右（紧凑化，棋盘上移）
+            Row {
                 id: nextPreviewColumn
-                spacing: 2
-                width: 84
+                spacing: 6
                 anchors.verticalCenter: parent.verticalCenter
+                width: opMode === "gestures" ? nextPreview.width + holdPreview.width + spacing
+                                              : nextPreview.width
 
                 Rectangle {
                     id: nextPreview
                     width: 4 * 18
                     height: 4 * 18
-                    anchors.horizontalCenter: parent.horizontalCenter
                     radius: 8
                     color: "#202020"
                     border.color: "#707070"
@@ -2184,10 +2195,11 @@ ApplicationWindow {
 
                 // 暂存指示（手势模式下可见：上滑暂存/调出，用过置灰）
                 Rectangle {
+                    id: holdPreview
                     visible: opMode === "gestures"
                     width: 4 * 13
                     height: 4 * 13
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.verticalCenter: parent.verticalCenter
                     radius: 8
                     color: "#202020"
                     border.color: canHold ? "#707070" : "#3a3a3a"
@@ -2225,37 +2237,37 @@ ApplicationWindow {
 
         Item {
             width: 1
-            height: 13
+            height: 8
         }
 
         // 游戏画布区域
 
-        // 连击能量槽卡片：横铺棋盘上方（连击 ≥2 显示），消行回满 / 随时间衰减
+        // 连击能量槽卡片：横铺棋盘上方（紧凑化：54px，消行回满 / 随时间衰减）
         Rectangle {
             id: energyCard
             visible: true                          // 常驻：无连击时槽为空
             width: gameBoard.width
-            height: 68
-            radius: 10
+            height: 54
+            radius: 9
             color: "#F0141414"
             border.color: comboEnergy > 25 ? "#ff7a18" : "#ff4444"
             border.width: 1
 
             Column {
                 anchors.fill: parent
-                anchors.margins: 6
-                spacing: 4
+                anchors.margins: 4
+                spacing: 3
 
                 Item {
                     width: parent.width
-                    height: 18
+                    height: 15
 
                     Text {
                         anchors.left: parent.left
                         anchors.verticalCenter: parent.verticalCenter
                         text: "COMBO × " + comboStreak
                         color: "#f5f1e8"
-                        font.pixelSize: 15
+                        font.pixelSize: 14
                         font.bold: true
                     }
                     Text {
@@ -2263,46 +2275,47 @@ ApplicationWindow {
                         anchors.verticalCenter: parent.verticalCenter
                         text: "连击状态"
                         color: "#ff9e3d"
-                        font.pixelSize: 12
+                        font.pixelSize: 11
                     }
                 }
 
                 Rectangle {
                     width: parent.width
-                    height: 10
-                    radius: 5
+                    height: 8
+                    radius: 4
                     color: "#333333"
                     Rectangle {
                         width: parent.width * comboEnergy / 100
                         height: parent.height
-                        radius: 5
+                        radius: 4
                         color: comboEnergy > 25 ? "#ff7a18" : "#ff4444"
                     }
                 }
 
                 Item {
                     width: parent.width
-                    height: 16
+                    height: 14
 
                     Rectangle {
-                        width: 16
-                        height: 16
+                        width: 14
+                        height: 14
                         radius: 4
                         anchors.left: parent.left
+                        anchors.verticalCenter: parent.verticalCenter
                         color: "#ff7a18"
                         Text {
                             anchors.centerIn: parent
                             text: "🔥"
-                            font.pixelSize: 10
+                            font.pixelSize: 9
                         }
                     }
                     Text {
                         anchors.left: parent.left
-                        anchors.leftMargin: 22
+                        anchors.leftMargin: 20
                         anchors.verticalCenter: parent.verticalCenter
                         text: "连击能量： " + Math.round(comboEnergy) + "%"
                         color: "#f5f1e8"
-                        font.pixelSize: 12
+                        font.pixelSize: 11
                     }
                 }
             }
