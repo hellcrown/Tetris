@@ -102,12 +102,12 @@ ApplicationWindow {
 
     // ---- 特效预设（v3.6 阶段1）：治愈(默认)/街机 只调表现层参数，不改规则 ----
     property string fxPreset: "zen"        // zen=治愈 / arcade=街机
-    property bool reduceMotion: false      // 减少动态：无震屏/无闪光/慢呼吸，保留必要提示
+    property bool reduceMotion: false      // 减少动态：无震屏/无闪光/无环境粒子/背景静止，保留必要提示（护眼推荐）
     readonly property bool zenFx: fxPreset === "zen"
     // 参数表（全部走缩放系数，随时可调）
     readonly property real fxShakeScale: reduceMotion ? 0 : (zenFx ? 0.4 : 1.0)      // 震屏幅度
-    readonly property int  fxFlashMs: reduceMotion ? 0 : (zenFx ? 300 : 180)         // 全屏白闪时长
-    readonly property real fxFlashPeak: reduceMotion ? 0 : (zenFx ? 0.35 : 0.85)     // 白闪峰值（治愈=柔和渐变）
+    readonly property int  fxFlashMs: reduceMotion ? 0 : (zenFx ? 240 : 180)         // 全屏白闪衰减时长
+    readonly property real fxFlashPeak: reduceMotion ? 0 : (zenFx ? 0.22 : 0.85)     // 白闪峰值（治愈=轻柔提亮）
     readonly property real fxParticleScale: reduceMotion ? 0.5 : (zenFx ? 0.65 : 1.0)// 粒子数量
     readonly property real fxBreathScale: reduceMotion ? 2.2 : (zenFx ? 1.6 : 1.0)   // 呼吸/闪烁周期倍率
     property bool fxSurge: false           // P1 大事件进行中：背景/氛围层让位（压暗+减速）
@@ -591,9 +591,11 @@ ApplicationWindow {
         NumberAnimation { target: root; property: "boardPunch"; to: 1.0; duration: 170; easing.type: Easing.OutBack }
     }
 
-    // Tetris 全屏白闪（治愈=柔和渐变 300ms / 街机=180ms / 减少动态=不闪）
+    // Tetris 全屏白闪（治愈=轻柔渐变 / 街机=180ms / 减少动态=不闪）。
+    // 缓升 25% 时长再缓降：消除亮度阶跃——阶跃式闪光是视觉疲劳的主要来源
     SequentialAnimation {
         id: flashAnimation
+        NumberAnimation { target: flashOverlay; property: "opacity"; from: 0; to: root.fxFlashPeak; duration: Math.max(root.fxFlashMs * 0.25, 40); easing.type: Easing.InQuad }
         NumberAnimation { target: flashOverlay; property: "opacity"; from: root.fxFlashPeak; to: 0; duration: Math.max(root.fxFlashMs, 1); easing.type: Easing.OutQuad }
         onStopped: flashOverlay.visible = false
     }
@@ -1797,10 +1799,10 @@ ApplicationWindow {
             id: bgAnimTimer
             interval: 200
             repeat: true
-            running: !isPaused && !showBgPicker && Qt.application.state === Qt.ApplicationActive
+            running: !isPaused && !showBgPicker && !reduceMotion && Qt.application.state === Qt.ApplicationActive
             onTriggered: {
-                // P1 大事件让位：背景压暗 ~25%
-                bgImage.opacity = (0.19 + Math.sin(bgPhase * 0.42) * 0.05) * (fxSurge ? 0.75 : 1.0)
+                // P1 大事件让位：背景压暗 ~25%（呼吸幅度 0.025：低于可感知闪烁阈值）
+                bgImage.opacity = (0.19 + Math.sin(bgPhase * 0.42) * 0.025) * (fxSurge ? 0.75 : 1.0)
                 bgPhase += 0.037
                 bgImage.x = -26 + Math.sin(bgPhase) * 26
                 bgImage.y = -18 + Math.sin(bgPhase * 0.74) * 18
@@ -1827,7 +1829,7 @@ ApplicationWindow {
             height: 8
             x: 0
             y: ambientRise ? parent.height - 8 : 0
-            enabled: !isPaused && Qt.application.state === Qt.ApplicationActive
+            enabled: !isPaused && !reduceMotion && Qt.application.state === Qt.ApplicationActive
             // P1 大事件让位（fxSurge）：环境粒子降到 40%；预设/减少动态缩放数量
             emitRate: 4 * fxParticleScale * (fxSurge ? 0.4 : 1.0)
             lifeSpan: 9000
@@ -2864,13 +2866,14 @@ ApplicationWindow {
                 SequentialAnimation on opacity {
                     running: comboStreak >= 2 && !isPaused && !reduceMotion
                     loops: Animation.Infinite
+                    // 治愈档呼吸幅度减半（0.82↔0.58）降低闪烁刺激；街机保持原幅度
                     NumberAnimation {
-                        to: 0.95
+                        to: zenFx ? 0.82 : 0.95
                         duration: Math.round((comboStreak >= 7 ? 160 : comboStreak >= 4 ? 260 : 420) * fxBreathScale)
                         easing.type: Easing.OutQuad
                     }
                     NumberAnimation {
-                        to: 0.35
+                        to: zenFx ? 0.58 : 0.35
                         duration: Math.round((comboStreak >= 7 ? 160 : comboStreak >= 4 ? 260 : 420) * fxBreathScale)
                         easing.type: Easing.InQuad
                     }
