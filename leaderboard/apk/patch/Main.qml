@@ -19,7 +19,7 @@ ApplicationWindow {
     readonly property int blockSize: 26  // 每个方块的像素大小
     readonly property int margin: 30
     readonly property int baseDropInterval: 800
-    readonly property int minDropInterval: 30   // 仅作定时器安全下限（防病态），实际不构成速度上限
+    readonly property int minDropInterval: 40   // 速度天花板：极速 = 40ms/格 ≈ 25 格/秒，累计消行 109 行到达（原 30ms 过快调慢）
     readonly property int dropAccelerationPerLine: 7
     property int settleAccelMs: 60      // 落块物理基准：1 格自由落体耗时，t = k·√h（h 单位：格）
 
