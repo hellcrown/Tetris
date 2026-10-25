@@ -168,10 +168,12 @@ ApplicationWindow {
     readonly property real fxParticleScale: calmFx ? 0 : (zenFx ? 0.65 : 1.0)  // 粒子数量
     readonly property real fxBreathScale: eyeCare ? 3.2 : reduceMotion ? 2.2 : (zenFx ? 1.6 : 1.0)   // 呼吸/闪烁周期倍率
     // 落锁闪光：每次落块都会触发（约 1Hz），白光最扎眼 → 护眼模式改成方块自身色的柔和提亮
-    readonly property real fxLockFlashAlpha: eyeCare ? 0.42 : 0.9
+    // （0.6：保留落块确认感，仍远低于白闪的 0.9）
+    readonly property real fxLockFlashAlpha: eyeCare ? 0.6 : 0.9
     readonly property int  fxLockFlashMs: eyeCare ? 240 : 270
     // 整行爆闪：一整行 12 格同时转白，是全屏最大的亮度阶跃
-    readonly property real fxRowFlashAlpha: eyeCare ? 0.20 : 0.85
+    // （0.35：确认感保留，峰值只有街机档的 40%）
+    readonly property real fxRowFlashAlpha: eyeCare ? 0.35 : 0.85
     readonly property int  fxRowFlashMs: eyeCare ? 320 : 200
     readonly property bool smoothFall: eyeCare                                 // 平滑下落（消除快速下落的阶跃频闪）
     readonly property int  breakReminderMinutes: 20                            // 休息提醒间隔（分钟）
@@ -1388,10 +1390,10 @@ ApplicationWindow {
     }
 
     // 移动/旋转前的当前形态快照（残影）
-    // 护眼/减少动态不出残影：每次左右移动/旋转都会刷一次 170ms 的淡色亮块，
-    // 操作密集时相当于在视野中心连续闪，收益（辅助定位）远小于代价。
+    // 残影是手势拖动的跟手感来源：减少动态完全关闭；护眼模式保留（170ms 自消的淡色块，
+    // 无亮边无频闪，属于操作反馈而非被动刺激——反馈全砍会让拖动发飘）
     function spawnAfterimage() {
-        if (calmFx) return
+        if (reduceMotion) return
         if (currentShape.length === 0) return
         var cells = []
         for (var r = 0; r < currentShape.length; r++)
@@ -1675,7 +1677,7 @@ ApplicationWindow {
         lineClearFragments = frags
         rowFlashes = clearedRows
         rowFlashTimer.restart()
-        if (!calmFx && linesCleared < 4)
+        if (!reduceMotion && linesCleared < 4)
             punchAnimation.restart()          // 四消走三段式演出（蓄力压缩），普通消行才用脉冲
         // P1 大事件（3/4 消）让位：背景压暗、氛围粒子减速 800ms
         if (linesCleared >= 3) {
