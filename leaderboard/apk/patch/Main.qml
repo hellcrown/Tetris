@@ -180,6 +180,9 @@ ApplicationWindow {
     readonly property real fxParticleScale: calmFx ? 0 : (zenFx ? 0.65 : 1.5)  // 街机粒子 1.5×
     readonly property real fxBreathScale: eyeCare ? 3.2 : reduceMotion ? 2.2 : (zenFx ? 1.6 : 0.75)   // 街机呼吸更快
     readonly property bool arcadeFx: !calmFx && !zenFx   // 街机档专属表现（护眼/减少动态不受影响）
+    // ---- 手势横移灵敏度（暂停菜单可调）：每格消耗的手指距离 = blockSize / 灵敏度 ----
+    property int dragSensIdx: 1           // 0=低 1=中 2=高 3=极高
+    readonly property real dragSens: [0.7, 1.0, 1.4, 1.8][dragSensIdx]
     // 落锁闪光：每次落块都会触发（约 1Hz），白光最扎眼 → 护眼模式改成方块自身色的柔和提亮
     // （0.6：保留落块确认感，仍远低于白闪的 0.9）；街机全亮+更干脆
     readonly property real fxLockFlashAlpha: eyeCare ? 0.6 : (arcadeFx ? 1.0 : 0.9)
@@ -413,6 +416,7 @@ ApplicationWindow {
         property alias fxPresetValue: root.fxPreset
         property alias reduceMotionValue: root.reduceMotion
         property alias eyeCareValue: root.eyeCare
+        property alias dragSensIdxValue: root.dragSensIdx
         property alias patchVerValue: root.patchVer
         property alias bestLinesValue: root.bestLines
         property alias bestTimeValue: root.bestTime
@@ -1223,7 +1227,9 @@ ApplicationWindow {
         "best10k_1":  { icon: "👑", name: "万分俱乐部 I", hint: "历史最高分 ≥ 10000", milestone: true },
         "best10k_2":  { icon: "👑", name: "万分俱乐部 II", hint: "历史最高分 ≥ 20000", milestone: true },
         "best10k_3":  { icon: "👑", name: "万分俱乐部 III", hint: "历史最高分 ≥ 50000", milestone: true },
-        "marathon":   { icon: "🕰️", name: "马拉松", hint: "累计游玩时长 ≥ 2 小时", milestone: true }
+        "marathon1":  { icon: "🕰️", name: "马拉松 I", hint: "累计游玩时长 ≥ 2 小时", milestone: true },
+        "marathon2":  { icon: "🕰️", name: "马拉松 II", hint: "累计游玩时长 ≥ 5 小时", milestone: true },
+        "marathon3":  { icon: "🕰️", name: "马拉松 III", hint: "累计游玩时长 ≥ 10 小时", milestone: true }
     })
     // 展示顺序：操作技巧 → 单局（含成长链）→ 生涯成长链
     readonly property var badgeOrder: [
@@ -1233,7 +1239,8 @@ ApplicationWindow {
         "score10k", "flash10",
         "veteran1", "veteran2", "veteran3",
         "lines100_1", "lines100_2", "lines100_3",
-        "best10k_1", "best10k_2", "best10k_3", "marathon"
+        "best10k_1", "best10k_2", "best10k_3",
+        "marathon1", "marathon2", "marathon3"
     ]
     property bool surviveArmed: false     // 本局曾进入危险三段（逆风翻盘判定用）
     function earnBadge(id) {
@@ -2027,7 +2034,9 @@ ApplicationWindow {
         if (bestScore >= 10000) earnBadge("best10k_1")
         if (bestScore >= 20000) earnBadge("best10k_2")
         if (bestScore >= 50000) earnBadge("best10k_3")
-        if (totalSecondsAll >= 7200) earnBadge("marathon")
+        if (totalSecondsAll >= 7200) earnBadge("marathon1")
+        if (totalSecondsAll >= 18000) earnBadge("marathon2")
+        if (totalSecondsAll >= 36000) earnBadge("marathon3")
         // 已有名字则本局成绩自动上榜（真实行数/用时），失败仍可手动点按钮重提
         if (playerName !== "" && scoreTarget > 0)
             submitScore()
@@ -3294,10 +3303,11 @@ ApplicationWindow {
                     axisAy = axisAy * 0.75 + Math.abs(edy)
                     var dominance = axisAy > axisAx
                                   ? Math.min(1, (axisAy - axisAx) / (blockSize * 1.5)) : 0
-                    var need = blockSize + Math.max(4, blockSize * 0.2) + dominance * blockSize
-                    // 横轴：整格移动（带死区与竖向抑制）
-                    while (dx >= need) { moveRight(); startX += blockSize; dx -= blockSize }
-                    while (dx <= -need) { moveLeft(); startX -= blockSize; dx += blockSize }
+                    // 横轴：整格移动。每格消耗的手指距离 = blockSize / 横移灵敏度（菜单可调）
+                    var cellCost = blockSize / dragSens
+                    var need = cellCost + Math.max(4, cellCost * 0.2) + dominance * cellCost
+                    while (dx >= need) { moveRight(); startX += cellCost; dx -= cellCost }
+                    while (dx <= -need) { moveLeft(); startX -= cellCost; dx += cellCost }
                     // 竖轴：软降整格 + 快甩/上滑判定
                     var now = Date.now()
                     var vy = (mouse.y - lastY) / Math.max(1, now - lastT)
@@ -3305,7 +3315,8 @@ ApplicationWindow {
                     lastY = mouse.y
                     lastT = now
                     while (dy >= blockSize) { softDropStep(); startY += blockSize; dy -= blockSize }
-                    if (dy <= -blockSize) {
+                    // 上滑暂存：需上移 2 格且以纵向为主——防横拖/落块时的手抖误触暂存
+                    if (dy <= -blockSize * 2 && Math.abs(dy) > Math.abs(dx) * 1.2) {
                         held = true
                         holdPiece()
                     } else if (totalDown > blockSize * 2 && vy > flickVelocity && vyPrev > flickVelocity * 0.6) {
@@ -4665,6 +4676,27 @@ ApplicationWindow {
                         text: reduceMotion ? "减少动态： 开" : "减少动态： 关"
                         color: "white"
                         font.pixelSize: 13
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                Button {
+                    width: 250
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: dragSensIdx = (dragSensIdx + 1) % 4
+
+                    background: Rectangle {
+                        radius: 8
+                        color: dragSensIdx >= 2 ? "#38d07c" : "#3a3a3a"
+                        border.width: 1
+                        border.color: dragSensIdx >= 2 ? "#c7f8dc" : "#666666"
+                    }
+
+                    contentItem: Text {
+                        text: "横移灵敏度：" + ["低", "中", "高", "极高"][dragSensIdx]
+                        color: "white"
+                        font.pixelSize: 15
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
