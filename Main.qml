@@ -3640,6 +3640,9 @@ ApplicationWindow {
                                 text: "本局亮点：" + recapHighlight()
                                 color: "#ffe9a8"
                                 font.pixelSize: 12
+                                wrapMode: Text.WrapAnywhere
+                                horizontalAlignment: Text.AlignHCenter
+                                width: parent.width - 14
                                 anchors.horizontalCenter: parent.horizontalCenter
                             }
                         }
