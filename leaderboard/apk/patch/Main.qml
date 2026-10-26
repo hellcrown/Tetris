@@ -1546,7 +1546,23 @@ ApplicationWindow {
 
     function updateDropSpeed() {
         var nextInterval = baseDropInterval - totalClearedLines * dropAccelerationPerLine
+        var wasTurbo = turboMode
         gameLoop.interval = Math.max(minDropInterval, nextInterval)
+        // 首次触底 = 一次性「极速达成」演出（每局一次）；街机档加重
+        if (!wasTurbo && turboMode && !isGameOver)
+            triggerTurboFanfare()
+    }
+    function triggerTurboFanfare() {
+        console.warn("[Turbo] 极速达成 interval=" + gameLoop.interval)
+        vibe(60)
+        if (calmFx) return   // 护眼/减少动态：仅常驻小字提示，无演出
+        flashOverlay.visible = true
+        flashAnimation.restart()
+        triggerScreenShake(3)
+        if (arcadeFx)
+            sparkBurst.burst(Math.round(20 * fxParticleScale), gameBoard.width / 2, gameBoard.height * 0.25)
+        turboFanfareText.visible = true
+        turboFanfareAnimation.restart()
     }
 
     function startGame() {
@@ -2625,6 +2641,32 @@ ApplicationWindow {
                 font.bold: true
                 style: Text.Outline
                 styleColor: "#000000"
+            }
+
+            // 极速达成一次性演出（每局首次触底时入场，弹跳缩放后退出）
+            Text {
+                id: turboFanfareText
+                visible: false
+                anchors.horizontalCenter: parent.horizontalCenter
+                y: parent.height * 0.2
+                text: "⚡ MAX SPEED ⚡"
+                color: "#ff5544"
+                font.pixelSize: 30
+                font.bold: true
+                style: Text.Outline
+                styleColor: "#000000"
+                z: 45
+
+                SequentialAnimation {
+                    id: turboFanfareAnimation
+                    ParallelAnimation {
+                        NumberAnimation { target: turboFanfareText; property: "scale"; from: 0.5; to: root.arcadeFx ? 1.25 : 1.05; duration: 340; easing.type: Easing.OutBack }
+                        NumberAnimation { target: turboFanfareText; property: "opacity"; from: 0; to: 1; duration: 160 }
+                    }
+                    PauseAnimation { duration: 700 }
+                    NumberAnimation { target: turboFanfareText; property: "opacity"; to: 0; duration: 400; easing.type: Easing.InQuad }
+                    ScriptAction { script: turboFanfareText.visible = false }
+                }
             }
 
             // B2B 待命角标：上一次消行为四消，×1.5 加成待命（连击 ≥2 时由燃烧边框表达）。
