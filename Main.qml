@@ -1477,7 +1477,7 @@ ApplicationWindow {
         // === 菜但努力（真惨之后，高光之前）===
         { c: function() { return playSeconds <= 45 },
           t: function() { return "这局短得像你的耐心。消了 " + totalClearedLines + " 行也好意思结算？" } },
-        { c: function() { return scoreTarget < 300 },
+        { c: function() { return scoreTarget < 1000 },
           t: function() { return scoreTarget + " 分？排行榜底下给你留了座位的" } },
         { c: function() { return totalClearedLines >= 1 && totalClearedLines < 5 },
           t: function() { return "消了 " + totalClearedLines + " 行……进步空间比你的棋盘还空" } },
