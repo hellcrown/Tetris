@@ -993,6 +993,7 @@ ApplicationWindow {
                         { id: "lines100_2", n: 1, ts: 0 }
                     ]
                     isGameOver = true
+                    computeGrade()
                     shoot("recap")
                 } else if (demoStep === 1) {
                     recapCompact = true
@@ -1274,6 +1275,66 @@ ApplicationWindow {
         toastTimer.restart()
     }
     // 结算页「本局亮点」：取徽章之最（clutch > flow > precise），无徽章回退战绩句
+    // ---- 结算评分系统：消行效率(40) + 存活时长(30) + 高光表现(30) → 百分制 → F~A+ 七档 ----
+    property string gameGrade: ""          // 本局评分档位（gameOver 时算好）
+    property int gameScore100: 0           // 百分制评分（角标显示用）
+    function computeGrade() {
+        // 1) 消行效率：四消权重大（参考曲线：38行≈满分档）
+        var eff = Math.min(40, totalClearedLines * 40 / 38)
+        // 2) 存活：10 分钟满档，按对数曲线增长（短命局拿不到几个分）
+        var surv = Math.min(30, Math.round(30 * Math.log10(1 + playSeconds / 20) / Math.log10(31)))
+        // 3) 高光：徽章/四消/B2B/连击/大分
+        var hl = 0
+        if (gameBadges.indexOf("clutch") !== -1) hl += 10
+        if (gameBadges.indexOf("flow") !== -1) hl += 8
+        if (gameBadges.indexOf("grandSlam") !== -1) hl += 8
+        if (gameBadges.indexOf("precise") !== -1) hl += 4
+        hl += Math.min(10, tetrisCount * 4)
+        hl += Math.min(6, b2bCount * 3)
+        if (maxCombo >= 10) hl += 6
+        else if (maxCombo >= 5) hl += 4
+        else if (maxCombo >= 3) hl += 2
+        if (scoreTarget >= 10000) hl += 4
+        var total = Math.round(Math.min(100, eff + surv + hl))
+        gameScore100 = total
+        gameGrade = total >= 90 ? "A+" : total >= 78 ? "A" : total >= 65 ? "B" : total >= 52 ? "C" : total >= 38 ? "D" : total >= 20 ? "E" : "F"
+    }
+    // 每档毒舌评语池：结算时随机抽一条（同档重开不重样）
+    readonly property var gradeQuips: ({
+        "A+": ["教科书级操作——可惜教科书不收 lucky streak 当作者",
+               "满分档，这是台机器在打吧？算了，夸完这句收回去",
+               "A+……行，今天这局允许你截图发群里",
+               "封顶了。下一个目标是保持住，别下局就现原形"],
+        "A":  ["差点满分，差的那点叫稳定性",
+               "高手，但分数里的水分我也看见了",
+               "这档位待着不错吧？下来一次试试就知道多难上来了",
+               "很能打。我最后一次夸人是上个月，珍惜"],
+        "B":  ["中上游水平，属于“会玩”但离“厉害”差一个四消",
+               "B 档常客了？这位置包间都给你留熟了",
+               "不功不过，像我早上吃的白粥——填得饱，没记忆点",
+               "够看，但发群里建议裁掉评分那一栏"],
+        "C":  ["及格线艺人，全靠系统放水",
+               "C——Consistent，一致地平庸",
+               "这分够买一杯奶茶，也只够买一杯奶茶",
+               "比上不足比下有余，说得就是你这种中间派"],
+        "D":  ["D 是“还行”的意思吗？不是",
+               "这局的数据拿去吓唬刚下载的萌新正合适",
+               "再练练吧，方块们的耐心也是有限的",
+               "D 档选手的高光时刻：退出得快"],
+        "E":  ["E……我都懒得给你编全称",
+               "这局唯一的贡献是给棋盘铺了层地板砖",
+               "建议收藏本局录像，用于日后对比进步幅度（如果有的话）",
+               "方块谢谢你，终于有人让它体面地躺平了"],
+        "F":  ["F——Fine，仅指你退场的手速",
+               "这个档位的存在就是为了让你知道 A+ 有多远",
+               "别灰心，F 档的兄弟你不会孤单的",
+               "系统已经尽力把分打出去了，是方块自己不争气"]
+    })
+    function gradeQuip() {
+        var pool = gradeQuips[gameGrade]
+        if (!pool || pool.length === 0) return ""
+        return pool[Math.floor(Math.random() * pool.length)]
+    }
     // 结算页「本局亮点」：毒舌评语规则表。排序 = 真惨（短命/零行）最优先 → 高光压制平庸嘲讽
     // → 普通惨 → 平庸阴阳 → 傲慢表扬收尾。数据源全是本局统计，结算时即查即得
     readonly property var recapRules: [
@@ -2102,6 +2163,7 @@ ApplicationWindow {
         lockDelayTimer.stop()
         score = scoreTarget
         bumpBest(score)
+        computeGrade()   // 评分与档位评语（结算页展示）
         // 永久累计战绩（settingsVersion 清档机制不清这四项之外的本局数据）
         totalGames++
         totalLinesAll += totalClearedLines
@@ -3476,6 +3538,54 @@ ApplicationWindow {
                                 font.pixelSize: 15
                                 font.bold: true
                                 anchors.horizontalCenter: parent.horizontalCenter
+                            }
+
+                            // 评分档位角标（F~A+，颜色随档位升高从灰到金）
+                            Rectangle {
+                                width: gradeRow.implicitWidth + 26
+                                height: 40
+                                radius: 20
+                                anchors.horizontalCenter: parent.horizontalCenter
+                                color: "#33222222"
+                                border.width: 2
+                                border.color: gameGrade === "A+" ? "#ffd95a"
+                                            : gameGrade === "A" ? "#ffcf5a"
+                                            : gameGrade === "B" ? "#9ac9ff"
+                                            : gameGrade === "C" ? "#9be3a0"
+                                            : gameGrade === "D" ? "#e0c08a" : "#cc7a7a"
+
+                                Row {
+                                    id: gradeRow
+                                    anchors.centerIn: parent
+                                    spacing: 8
+
+                                    Text {
+                                        text: gameGrade
+                                        color: gameGrade === "A+" ? "#ffd95a"
+                                             : gameGrade === "A" ? "#ffcf5a"
+                                             : gameGrade === "B" ? "#9ac9ff"
+                                             : gameGrade === "C" ? "#9be3a0"
+                                             : gameGrade === "D" ? "#e0c08a" : "#cc7a7a"
+                                        font.pixelSize: 22
+                                        font.bold: true
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Text {
+                                        text: gameScore100 + " 分"
+                                        color: "#bbbbbb"
+                                        font.pixelSize: 13
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                }
+                            }
+
+                            Text {
+                                text: gradeQuip()
+                                color: "#ffd0a0"
+                                font.pixelSize: 12
+                                wrapMode: Text.WrapAnywhere
+                                width: parent.width - 16
+                                horizontalAlignment: Text.AlignHCenter
                             }
 
                             Text {
