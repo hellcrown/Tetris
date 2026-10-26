@@ -321,6 +321,17 @@ ApplicationWindow {
                        gameBoard.width / 2, gameBoard.height * 0.3)
     }
     property var bagQueue: []           // 7-bag 随机袋余量
+    // ---- 每日挑战：同一日期全服同一方块序列（服务器发种子，mulberry32 洗袋）----
+    property bool dailyMode: false
+    property int dailySeed: 0
+    property int dailyRngState: 0
+    function mulberry32() {
+        dailyRngState = (dailyRngState + 0x6D2B79F5) | 0
+        var t = dailyRngState
+        t = Math.imul(t ^ (t >>> 15), t | 1)
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+    }
     property int holdShapeIndex: -1     // Hold 区方块索引（-1 为空）
     property bool canHold: true         // 每个方块落地前只能 Hold 一次
     property bool b2bActive: false      // Back-to-Back：上次是消 4 行时保持
@@ -1002,6 +1013,10 @@ ApplicationWindow {
                     recapCompact = false
                     showStats = true
                     shoot("stats-badges")
+                } else if (demoStep === 3) {
+                    buildAndShare()           // 战报图端到端验证（保存到应用外部目录）
+                } else if (demoStep === 4) {
+                    shoot("share-generated")
                 } else {
                     demoTimer.stop()
                     Qt.quit()
@@ -1125,18 +1140,28 @@ ApplicationWindow {
         grid = refreshedGrid
     }
 
-    // 7-bag：7 种方块洗牌成袋发放，保证分布
+    // 7-bag：7 种方块洗牌成袋发放，保证分布；每日挑战用种子随机（全服同序列）
     function nextFromBag() {
         if (bagQueue.length === 0) {
             bagQueue = [0, 1, 2, 3, 4, 5, 6]
             for (var i = bagQueue.length - 1; i > 0; i--) {
-                var j = Math.floor(Math.random() * (i + 1))
+                var j = Math.floor((dailyMode ? mulberry32() : Math.random()) * (i + 1))
                 var t = bagQueue[i]
                 bagQueue[i] = bagQueue[j]
                 bagQueue[j] = t
             }
         }
         return bagQueue.pop()
+    }
+    function startDaily() {
+        apiGet("daily", function (ok, data) {
+            var d = new Date()
+            var local = d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate()
+            dailyMode = true
+            dailySeed = ok && data && data.seed ? data.seed : local % 2147483647
+            dailyRngState = dailySeed
+            startGame()
+        })
     }
 
     function prepareNextPiece() {
@@ -1335,6 +1360,142 @@ ApplicationWindow {
         if (!pool || pool.length === 0) return ""
         return pool[Math.floor(Math.random() * pool.length)]
     }
+    // ---- 战报分享卡：离屏渲染 640x960 PNG（2x 采样），评分+毒舌+统计+下载址 ----
+    Item {
+        id: shareCard
+        visible: false
+        width: 640
+        height: 960
+
+        Rectangle { anchors.fill: parent; color: "#16181c" }
+        Rectangle {
+            anchors.fill: parent
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#2a2028" }
+                GradientStop { position: 1.0; color: "#16181c" }
+            }
+        }
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 26
+
+            Text {
+                text: "毒舌俄罗斯方块"
+                color: "#8a8a8a"
+                font.pixelSize: 26
+                font.bold: true
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Rectangle {
+                width: 380
+                height: 110
+                radius: 55
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: "#33222222"
+                border.width: 3
+                border.color: gameGrade === "A+" || gameGrade === "A" ? "#ffd95a" : gameGrade === "B" ? "#9ac9ff" : gameGrade === "C" ? "#9be3a0" : "#cc7a7a"
+
+                Row {
+                    anchors.centerIn: parent
+                    spacing: 16
+
+                    Text {
+                        text: gameGrade
+                        color: gameGrade === "A+" || gameGrade === "A" ? "#ffd95a" : gameGrade === "B" ? "#9ac9ff" : gameGrade === "C" ? "#9be3a0" : "#cc7a7a"
+                        font.pixelSize: 64
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                    Text {
+                        text: scoreTarget + " 分"
+                        color: "#e8e8e8"
+                        font.pixelSize: 40
+                        font.bold: true
+                        anchors.verticalCenter: parent.verticalCenter
+                    }
+                }
+            }
+
+            Text {
+                text: gradeQuip()
+                color: "#ffd0a0"
+                font.pixelSize: 26
+                wrapMode: Text.WrapAnywhere
+                width: 520
+                horizontalAlignment: Text.AlignHCenter
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Row {
+                spacing: 34
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                Repeater {
+                    model: [
+                        { v: totalClearedLines, l: "消行" },
+                        { v: "x" + maxCombo, l: "连击" },
+                        { v: tetrisCount, l: "四消" },
+                        { v: formatPlayTime(playSeconds), l: "用时" }
+                    ]
+                    delegate: Column {
+                        spacing: 4
+                        Text {
+                            text: "" + modelData.v
+                            color: "#ffffff"
+                            font.pixelSize: 34
+                            font.bold: true
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+                        Text {
+                            text: modelData.l
+                            color: "#888888"
+                            font.pixelSize: 20
+                            anchors.horizontalCenter: parent.horizontalCenter
+                        }
+                    }
+                }
+            }
+
+            Text {
+                text: Qt.formatDate(new Date(), "yyyy.MM.dd")
+                color: "#666666"
+                font.pixelSize: 22
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
+
+        Text {
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: 40
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "blood-table.top/tetris/api/download · 来挨骂"
+            color: "#5a6a72"
+            font.pixelSize: 22
+        }
+    }
+    property string sharePath: ""
+    function buildAndShare() {
+        sharePath = NativeUpdate.apkDownloadPath("share-report.png")
+        NativeUpdate.grabItem(shareCard, sharePath)
+    }
+    Connections {
+        target: NativeUpdate
+        function onShareDone(path) {
+            if (path === "") {
+                showToast("📸", "战报生成失败")
+                return
+            }
+            if (Qt.platform.os === "android") {
+                NativeUpdate.shareImage(path)
+                showToast("📸", "战报已生成，去分享吧")
+            } else {
+                showToast("📸", "战报已保存")
+            }
+        }
+    }
+
     // 结算页「本局亮点」：毒舌评语规则表。排序 = 真惨（短命/零行）最优先 → 高光压制平庸嘲讽
     // → 普通惨 → 平庸阴阳 → 傲慢表扬收尾。数据源全是本局统计，结算时即查即得
     readonly property var recapRules: [
@@ -1520,12 +1681,13 @@ ApplicationWindow {
         })
     }
 
+    property string lbSource: "all"     // 排行榜数据源：all=总榜 daily=今日挑战榜
     function fetchTop() {
         lbLoading = true
         lbRows = []
         lbTotal = 0
         lbError = false
-        apiGet("top?limit=10", function (ok, data, detail) {
+        apiGet(lbSource === "daily" ? "daily/top" : "top?limit=10", function (ok, data, detail) {
             lbLoading = false
             if (ok && data) {
                 lbRows = data.top
@@ -2176,6 +2338,11 @@ ApplicationWindow {
         if (totalGames >= 50) earnBadge("veteran1")
         if (totalGames >= 100) earnBadge("veteran2")
         if (totalGames >= 200) earnBadge("veteran3")
+        // 每日挑战：成绩自动上报今日榜（不占总榜）
+        if (dailyMode && playerName !== "" && scoreTarget > 0) {
+            apiPost("daily/score", { uid: playerUid, name: playerName, score: scoreTarget,
+                                     lines: totalClearedLines, time: playSeconds }, function () { })
+        }
         if (bestScore >= 10000) earnBadge("best10k_1")
         if (bestScore >= 20000) earnBadge("best10k_2")
         if (bestScore >= 50000) earnBadge("best10k_3")
@@ -3718,6 +3885,12 @@ ApplicationWindow {
                     }
 
                     Button {
+                        text: "📸 生成战报"
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        onClicked: buildAndShare()
+                    }
+
+                    Button {
                         text: "重新开始"
                         anchors.horizontalCenter: parent.horizontalCenter
                         onClicked: startGame()
@@ -3968,6 +4141,38 @@ ApplicationWindow {
                     font.pixelSize: 20
                     font.bold: true
                     anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                // 数据源切换：总榜 / 今日挑战榜
+                Row {
+                    spacing: 8
+                    anchors.horizontalCenter: parent.horizontalCenter
+
+                    Repeater {
+                        model: [{ k: "all", n: "总榜" }, { k: "daily", n: "今日挑战" }]
+                        delegate: Button {
+                            width: 96
+                            onClicked: {
+                                if (lbSource !== modelData.k) {
+                                    lbSource = modelData.k
+                                    fetchTop()
+                                }
+                            }
+                            background: Rectangle {
+                                radius: 8
+                                color: lbSource === modelData.k ? "#3a8be0" : "#3a3a3a"
+                                border.width: 1
+                                border.color: lbSource === modelData.k ? "#94c6ff" : "#666666"
+                            }
+                            contentItem: Text {
+                                text: modelData.n
+                                color: "white"
+                                font.pixelSize: 13
+                                horizontalAlignment: Text.AlignHCenter
+                                verticalAlignment: Text.AlignVCenter
+                            }
+                        }
+                    }
                 }
 
                 Text {
@@ -4645,22 +4850,30 @@ ApplicationWindow {
 
                     Button {
                         text: "战绩"
-                        width: 84
+                        width: 66
                         onClicked: showStats = true
                     }
 
                     Button {
                         text: "排行"
-                        width: 84
+                        width: 66
                         onClicked: {
+                            lbSource = "all"
                             fetchTop()
                             showLeaderboard = true
                         }
                     }
 
                     Button {
+                        text: "每日"
+                        width: 66
+                        highlighted: true
+                        onClicked: startDaily()
+                    }
+
+                    Button {
                         text: "重开"
-                        width: 84
+                        width: 66
                         onClicked: startGame()
                     }
                 }

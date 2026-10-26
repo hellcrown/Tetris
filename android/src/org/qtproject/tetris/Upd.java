@@ -111,6 +111,39 @@ public class Upd {
         }
     }
 
+    /** 战报分享：PNG 入 MediaStore 图库后拉起系统分享面板（Android 10+；旧系统静默跳过） */
+    public static void shareImage(Context ctx, String path) {
+        if (Build.VERSION.SDK_INT < 29)
+            return;
+        try {
+            java.io.File f = new java.io.File(path);
+            if (!f.exists())
+                return;
+            ContentValues v = new ContentValues();
+            v.put(MediaStore.MediaColumns.DISPLAY_NAME, "tetris-report-" + System.currentTimeMillis() + ".png");
+            v.put(MediaStore.MediaColumns.MIME_TYPE, "image/png");
+            v.put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/tetris");
+            Uri uri = ctx.getContentResolver().insert(MediaStore.Images.EXTERNAL_CONTENT_URI, v);
+            if (uri == null)
+                return;
+            java.io.OutputStream os = ctx.getContentResolver().openOutputStream(uri);
+            java.io.InputStream in = new java.io.FileInputStream(f);
+            byte[] buf = new byte[64 * 1024];
+            int n;
+            while ((n = in.read(buf)) > 0)
+                os.write(buf, 0, n);
+            os.close();
+            in.close();
+            Intent i = new Intent(Intent.ACTION_SEND);
+            i.setType("image/png");
+            i.putExtra(Intent.EXTRA_STREAM, uri);
+            i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(Intent.createChooser(i, "分享战报"));
+        } catch (Exception e) {
+            Log.w(TAG, "[Upd] 分享失败: " + e);
+        }
+    }
+
     /** 重启应用（QML 补丁生效用）：400ms 后闹钟重新拉起，当前进程立即退出 */
     public static void restartApp(Context ctx) {
         try {

@@ -12,6 +12,8 @@
 #include <QDateTime>
 #include <QTimer>
 #include <QQuickWindow>
+#include <QQuickItem>
+#include <QQuickItemGrabResult>
 #include <QSGRendererInterface>
 #include <QSysInfo>
 #ifdef Q_OS_ANDROID
@@ -288,6 +290,46 @@ public:
         return ok;
     }
 
+    // 战报分享：把任意 QML Item 离屏渲染为 PNG（2x 抗糊），存应用外部目录
+    Q_INVOKABLE void grabItem(QQuickItem *item, const QString &path)
+    {
+        if (!item) {
+            emit shareDone("");
+            return;
+        }
+        QDir().mkpath(QFileInfo(path).path());
+        const QSize target(item->width() * 2, item->height() * 2);
+        const QSharedPointer<QQuickItemGrabResult> result = item->grabToImage(target);
+        if (result.isNull()) {
+            emit shareDone("");
+            return;
+        }
+        connect(result.data(), &QQuickItemGrabResult::ready, this, [this, result, path]() {
+            const QImage img = result->image();
+            const bool ok = !img.isNull() && img.save(path);
+            qInfo() << "[Share]" << path << (ok ? "OK" : "FAILED") << img.width() << "x" << img.height();
+            emit shareDone(ok ? path : QString());
+        });
+    }
+
+    // 系统分享面板（Android 10+：PNG 入 MediaStore 后 ACTION_SEND；其他平台仅保存）
+    Q_INVOKABLE void shareImage(const QString &path)
+    {
+#ifdef Q_OS_ANDROID
+        const QJniObject activity = QNativeInterface::QAndroidApplication::context();
+        if (!activity.isValid())
+            return;
+        QJniObject::callStaticMethod<void>(
+            "org/qtproject/tetris/Upd", "shareImage",
+            "(Landroid/content/Context;Ljava/lang/String;)V",
+            activity.object(),
+            QJniObject::fromString(path).object<jstring>());
+#else
+        Q_UNUSED(path);
+        emit shareDone(path);
+#endif
+    }
+
     Q_INVOKABLE void openInstallPermissionSettings() const
     {
 #ifdef Q_OS_ANDROID
@@ -330,6 +372,7 @@ public:
 signals:
     void downloadProgress(qint64 done, qint64 total);
     void downloadDone(const QString &path);
+    void shareDone(const QString &path);
 
 private:
     static NativeUpdate *s_instance;

@@ -105,6 +105,30 @@ function readBody(req, cb) {
 // APK 在线更新：apk/ 目录下放 tetris-latest.apk + version.json（code/name/file）
 const APK_DIR = path.join(__dirname, 'apk')
 
+// 每日挑战：种子由日期决定（全服同一天同一序列）；成绩按日存 data-daily.json
+const DAILY_FILE = path.join(__dirname, 'data-daily.json')
+let dailyStore = { day: '', entries: [] } // entries: [{uid,name,score,lines,time,ts}]
+
+function todayStr() {
+  const d = new Date()
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+}
+function dailySeed() {
+  // 与客户端回退公式一致：YYYYMMDD 取模（服务器在线时客户端以服务器值为准）
+  return Number(todayStr().replace(/-/g, '')) % 2147483647
+}
+function loadDaily() {
+  try {
+    const d = JSON.parse(fs.readFileSync(DAILY_FILE, 'utf8'))
+    if (d.day === todayStr()) dailyStore = d
+  } catch (e) { }
+}
+function saveDaily() {
+  const tmp = DAILY_FILE + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(dailyStore))
+  fs.renameSync(tmp, DAILY_FILE)
+}
+
 const server = http.createServer((req, res) => {
   const xff = String(req.headers['x-forwarded-for'] || '')
   const ip = (xff.split(',').pop().trim()) || req.socket.remoteAddress || '?'
@@ -158,6 +182,83 @@ const server = http.createServer((req, res) => {
 
   if (req.method === 'GET' && url === '/tetris/api/health') {
     return send(res, 200, { ok: true, players: entries.length })
+  }
+
+  // 每日挑战：种子 / 成绩提交 / 今日榜
+  if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/daily') {
+    if (dailyStore.day !== todayStr()) loadDaily()
+    if (dailyStore.day !== todayStr()) dailyStore = { day: todayStr(), entries: [] }
+    return send(res, 200, { ok: true, date: todayStr(), seed: dailySeed(), players: dailyStore.entries.length })
+  }
+  if (req.method === 'POST' && url === '/tetris/api/daily/score') {
+    if (rateLimited(ip)) return send(res, 429, { ok: false, error: 'TOO_FAST' })
+    return readBody(req, body => {
+      if (!body || typeof body !== 'object') return send(res, 400, { ok: false, error: 'BAD_JSON' })
+      const uid = typeof body.uid === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(body.uid) ? body.uid : ''
+      const name = cleanName(body.name)
+      const score = Math.floor(Number(body.score))
+      const lines = Math.floor(Number(body.lines))
+      const time = Math.floor(Number(body.time))
+      if (!uid || name.length < 1) return send(res, 400, { ok: false, error: 'BAD_INPUT' })
+      if (!(score >= 0 && score <= 5000000)) return send(res, 400, { ok: false, error: 'BAD_SCORE' })
+      if (dailyStore.day !== todayStr()) dailyStore = { day: todayStr(), entries: [] }
+      const ex = dailyStore.entries.find(e => e.uid === uid)
+      if (ex) {
+        if (score > ex.score) {
+          ex.score = score; ex.lines = lines; ex.time = time; ex.ts = Date.now()
+        } else if (name !== ex.name) {
+          ex.name = name
+        }
+      } else {
+        dailyStore.entries.push({ uid, name, score, lines, time, ts: Date.now() })
+      }
+      saveDaily()
+      const rank = dailyStore.entries.slice().sort((a, b) => b.score - a.score || a.time - a.time).findIndex(e => e.uid === uid) + 1
+      return send(res, 200, { ok: true, rank })
+    })
+  }
+  if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/daily/top') {
+    if (dailyStore.day !== todayStr()) loadDaily()
+    if (dailyStore.day !== todayStr()) dailyStore = { day: todayStr(), entries: [] }
+    const top = dailyStore.entries.slice()
+      .sort((a, b) => b.score - a.score || a.time - b.time)
+      .slice(0, 10)
+      .map((e, i) => ({ rank: i + 1, name: e.name, score: e.score, lines: e.lines, time: e.time }))
+    return send(res, 200, { ok: true, date: todayStr(), total: dailyStore.entries.length, top })
+  }
+
+  // 下载页（推广落地页：下载按钮 + 玩法亮点 + 毒舌示例）
+  if (req.method === 'GET' && (url.split('?')[0] === '/tetris/api/download' || url.split('?')[0] === '/tetris/download')) {
+    let ver = ''
+    try { ver = JSON.parse(fs.readFileSync(path.join(APK_DIR, 'version.json'), 'utf8')).name || '' } catch (e) { }
+    const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>毒舌俄罗斯方块 · 下载</title>
+<style>
+body{margin:0;background:#16181c;color:#f5f1e8;font-family:system-ui,sans-serif;display:flex;justify-content:center}
+.card{max-width:420px;width:100%;padding:36px 22px;box-sizing:border-box}
+h1{font-size:26px;margin:0 0 6px}.sub{color:#8a8a8a;font-size:13px;margin-bottom:26px}
+.dl{display:block;text-align:center;background:#2e7d5b;color:#fff;text-decoration:none;font-size:18px;font-weight:bold;
+padding:16px;border-radius:14px;margin:18px 0 8px}
+.tip{color:#666;font-size:12px;text-align:center;margin-bottom:26px}
+.f{background:#1f2429;border-radius:12px;padding:14px 16px;margin:10px 0;font-size:14px;line-height:1.7}
+.f b{color:#ffd95a}
+.roast{background:#241f1a;border-left:3px solid #ff9e3d;border-radius:8px;padding:12px 14px;margin:10px 0;font-size:13px;color:#ffd0a0;line-height:1.6}
+.v{color:#555;font-size:12px;text-align:center;margin-top:24px}
+</style></head><body><div class="card">
+<h1>毒舌俄罗斯方块</h1>
+<div class="sub">经典落块 · 毒舌评分 · 每日挑战 · 全服排行</div>
+<a class="dl" href="/tetris/api/apk/tetris-latest.apk">⬇ 下载 Android 版（约 50MB）</a>
+<div class="tip">安装时允许「未知来源应用」即可；更新直接在游戏里点</div>
+<div class="f"><b>🎮 每日挑战</b><br>全服每天同一串方块，看谁稳——今天你排第几？</div>
+<div class="f"><b>🏅 24 枚成就 + 成长链</b><br>极限救场、大满贯、万分俱乐部……永久收藏</div>
+<div class="f"><b>👁 护眼模式</b><br>低饱和配色 · 平滑下落 · 20 分钟休息提醒，玩久不流泪</div>
+<div class="roast">结算示例 · F 档：『F——Fine，仅指你退场的手速』<br>本局亮点：『0 行。棋盘表示它今天没被用过』</div>
+<div class="roast">结算示例 · A+ 档：『满分？这是台机器在打吧？』</div>
+<div class="v">v${ver} · 服务端数据仅存最高分与当日挑战成绩</div>
+</div></body></html>`
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    return res.end(html)
   }
 
   if (req.method === 'GET' && url.startsWith('/tetris/api/top')) {
@@ -231,4 +332,5 @@ const server = http.createServer((req, res) => {
 })
 
 load()
+loadDaily()
 server.listen(PORT, '127.0.0.1', () => console.log('tetris-leaderboard on 127.0.0.1:' + PORT))
