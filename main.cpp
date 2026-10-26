@@ -464,6 +464,8 @@ public:
 #ifdef Q_OS_ANDROID
 static bool s_everRendered = false;   // 已有渲染帧（解锁恢复梯只对"玩过之后锁屏"武装）
 static qint64 s_lastNoteMs = 0;       // noteFrame 节流
+static int s_fpsCount = 0;            // FPS 采样（仅 TETRIS_FPS=1 时输出，性能验证用）
+static qint64 s_fpsWindowStart = 0;
 #endif
 
 int main(int argc, char *argv[])
@@ -775,6 +777,21 @@ int main(int argc, char *argv[])
             QObject::connect(win, &QQuickWindow::afterRendering, [] {
                 s_everRendered = true;
                 const qint64 now = QDateTime::currentMSecsSinceEpoch();
+                if (qEnvironmentVariableIsSet("TETRIS_FPS")
+                    || QJniObject::callStaticMethod<jboolean>(
+                        "android/os/SystemProperties", "getBoolean",
+                        "(Ljava/lang/String;Z)Z",
+                        QJniObject::fromString("debug.tetris.fps").object<jstring>(),
+                        static_cast<jboolean>(false))) {
+                    s_fpsCount++;
+                    if (s_fpsWindowStart == 0) s_fpsWindowStart = now;
+                    if (now - s_fpsWindowStart >= 5000) {
+                        qInfo() << "[FPS]" << s_fpsCount * 1000.0 / (now - s_fpsWindowStart)
+                                << "fps（近5秒）";
+                        s_fpsCount = 0;
+                        s_fpsWindowStart = now;
+                    }
+                }
                 if (now - s_lastNoteMs > 200) {
                     s_lastNoteMs = now;
                     QJniObject::callStaticMethod<void>(
