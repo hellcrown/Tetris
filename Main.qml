@@ -79,10 +79,22 @@ ApplicationWindow {
             m[toneKey(colorsNormal[i])] = toneKey(colorsEye[i])
         return m
     }
+    // 反向映射：护眼开着时锁进 grid 的格子存的是护眼色字面量，关掉后要映射回原色，
+    // 否则这些格子永远停在护眼配色（重启前不恢复）
+    readonly property var normalToneMap: {
+        var m = {}
+        for (var j = 0; j < colorsNormal.length && j < colorsEye.length; j++)
+            m[toneKey(colorsEye[j])] = toneKey(colorsNormal[j])
+        return m
+    }
     function tone(c) {
-        if (!eyeCare || c === undefined || c === null) return c
-        var hit = eyeToneMap[toneKey(c)]
-        return (hit === undefined || hit === null) ? String(c) : ("#" + hit)
+        if (c === undefined || c === null) return c
+        if (eyeCare) {
+            var hit = eyeToneMap[toneKey(c)]
+            return (hit === undefined || hit === null) ? String(c) : ("#" + hit)
+        }
+        var back = normalToneMap[toneKey(c)]
+        return (back === undefined || back === null) ? String(c) : ("#" + back)
     }
 
     // --- 游戏状态变量 ---
@@ -997,6 +1009,21 @@ ApplicationWindow {
                     console.warn("[UnlockQ] newUnlocks=" + newUnlocks
                                  + " 队列剩余=" + unlockQueue.length)
                     shoot("unlockq-end")
+                } else {
+                    demoTimer.stop()
+                    Qt.quit()
+                }
+            } else if (demoScene === "eyetoggle") {
+                // 护眼开关回归：锁定格子在场时切换开关，颜色应立即双向恢复（修复单向 tone 的回归测试）
+                isPaused = false
+                if (demoStep === 0) {
+                    demoSetupTetris()
+                    eyeCare = true
+                    refreshGrid()
+                    shoot("eyetoggle-on")
+                } else if (demoStep === 1) {
+                    eyeCare = false
+                    shoot("eyetoggle-off")
                 } else {
                     demoTimer.stop()
                     Qt.quit()
