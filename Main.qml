@@ -1381,7 +1381,7 @@ ApplicationWindow {
             spacing: 26
 
             Text {
-                text: "毒舌俄罗斯方块"
+                text: "俄罗斯方块"
                 color: "#8a8a8a"
                 font.pixelSize: 26
                 font.bold: true

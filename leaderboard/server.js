@@ -233,7 +233,7 @@ const server = http.createServer((req, res) => {
     try { ver = JSON.parse(fs.readFileSync(path.join(APK_DIR, 'version.json'), 'utf8')).name || '' } catch (e) { }
     const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>毒舌俄罗斯方块 · 下载</title>
+<title>俄罗斯方块 · 下载</title>
 <style>
 body{margin:0;background:#16181c;color:#f5f1e8;font-family:system-ui,sans-serif;display:flex;justify-content:center}
 .card{max-width:420px;width:100%;padding:36px 22px;box-sizing:border-box}
@@ -246,7 +246,7 @@ padding:16px;border-radius:14px;margin:18px 0 8px}
 .roast{background:#241f1a;border-left:3px solid #ff9e3d;border-radius:8px;padding:12px 14px;margin:10px 0;font-size:13px;color:#ffd0a0;line-height:1.6}
 .v{color:#555;font-size:12px;text-align:center;margin-top:24px}
 </style></head><body><div class="card">
-<h1>毒舌俄罗斯方块</h1>
+<h1>俄罗斯方块</h1>
 <div class="sub">经典落块 · 毒舌评分 · 每日挑战 · 全服排行</div>
 <a class="dl" href="/tetris/api/apk/tetris-latest.apk">⬇ 下载 Android 版（约 50MB）</a>
 <div class="tip">安装时允许「未知来源应用」即可；更新直接在游戏里点</div>
