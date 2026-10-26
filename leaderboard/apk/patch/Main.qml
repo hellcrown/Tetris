@@ -1274,12 +1274,66 @@ ApplicationWindow {
         toastTimer.restart()
     }
     // 结算页「本局亮点」：取徽章之最（clutch > flow > precise），无徽章回退战绩句
+    // 结算页「本局亮点」：数据驱动的多档规则表，按稀有度/戏剧性从上往下短路取首条。
+    // 数据源全是本局统计（徽章/四消/B2B/连击/时长/消行/解锁），结算时即查即得
+    readonly property var recapRules: [
+        { c: function() { return gameBadges.indexOf("clutch") !== -1 },
+          t: function() { return "🛡️ 危险时刻极限救场" } },
+        { c: function() { return b2bCount >= 3 },
+          t: function() { return "👑 B2B 三连击，教科书级发挥" } },
+        { c: function() { return tetrisCount >= 4 },
+          t: function() { return "🧱 四消机器，单局 " + tetrisCount + " 次四行消除" } },
+        { c: function() { return gameBadges.indexOf("flow") !== -1 && maxCombo >= 8 },
+          t: function() { return "🌊行云流水，最高 x" + maxCombo + " 不断档" } },
+        { c: function() { return gameBadges.indexOf("grandSlam") !== -1 },
+          t: function() { return "🌈 大满贯：1/2/3/4 消全数打穿" } },
+        { c: function() { return gameBadges.indexOf("flow") !== -1 },
+          t: function() { return "🌊 行云流水未涉险境" } },
+        { c: function() { return gameBadges.indexOf("precise") !== -1 },
+          t: function() { return "🎯 落位分毫不差" } },
+        { c: function() { return b2bCount >= 2 },
+          t: function() { return "💥 背靠背 x" + b2bCount + "，火力全开" } },
+        { c: function() { return tetrisCount >= 2 },
+          t: function() { return "🧱 打出 " + tetrisCount + " 次四行消除" } },
+        { c: function() { return playSeconds <= 90 && totalClearedLines >= 15 },
+          t: function() { return "⚡ 开局 90 秒消 " + totalClearedLines + " 行，闪电战" } },
+        { c: function() { return scoreTarget >= 20000 },
+          t: function() { return "💰 两万分巨局！" } },
+        { c: function() { return scoreTarget >= 10000 },
+          t: function() { return "💰 万分达成，手感滚烫" } },
+        { c: function() { return maxCombo >= 10 },
+          t: function() { return "🔥 连击 x" + maxCombo + "，连击大师本尊" } },
+        { c: function() { return maxCombo >= 5 },
+          t: function() { return "🔥 连击 x" + maxCombo + "，越战越勇" } },
+        { c: function() { return playSeconds >= 600 && totalClearedLines >= 40 },
+          t: function() { return "🕰️ 十分钟鏖战 " + totalClearedLines + " 行，耐力惊人" } },
+        { c: function() { return newUnlocks >= 2 },
+          t: function() { return "🖼️ 一局解锁 " + newUnlocks + " 张新背景" } },
+        { c: function() { return newUnlocks === 1 },
+          t: function() { return "🖼️ 解锁新背景收藏" } },
+        { c: function() { return maxCombo >= 3 },
+          t: function() { return "🔥 最高连击 x" + maxCombo } },
+        { c: function() { return tetrisCount === 1 },
+          t: function() { return "🧱 一次干脆利落的四行消除" } },
+        { c: function() { return b2bCount === 1 },
+          t: function() { return "💥 首次背靠背加成" } },
+        { c: function() { return totalClearedLines >= 20 },
+          t: function() { return "🧱 " + totalClearedLines + " 行稳定输出" } },
+        { c: function() { return playSeconds >= 300 },
+          t: function() { return "🕰️ 五分钟坚守，慢工出细活" } },
+        { c: function() { return scoreTarget >= 3000 },
+          t: function() { return "📈 " + scoreTarget + " 分，稳步上分" } },
+        { c: function() { return totalClearedLines === 0 && playSeconds >= 120 },
+          t: function() { return "🧍 开局不久便受阻，再接再厉" } },
+        { c: function() { return totalClearedLines === 0 },
+          t: function() { return "🌱 第一行从下一次开始" } },
+        { c: function() { return playSeconds <= 60 },
+          t: function() { return "⏱️ 短平快的一局" } }
+    ]
     function recapHighlight() {
-        if (gameBadges.indexOf("clutch") !== -1) return "🛡️ 危险时刻极限救场"
-        if (gameBadges.indexOf("flow") !== -1) return "🌊 行云流水未涉险境"
-        if (gameBadges.indexOf("precise") !== -1) return "🎯 落位分毫不差"
-        if (tetrisCount > 0) return "🧱 打出 " + tetrisCount + " 次四行消除"
-        if (maxCombo >= 3) return "🔥 最高连击 x" + maxCombo
+        for (var i = 0; i < recapRules.length; i++)
+            if (recapRules[i].c())
+                return recapRules[i].t()
         return "稳扎稳打的一局"
     }
 
