@@ -1163,6 +1163,44 @@ ApplicationWindow {
             startGame()
         })
     }
+    // 每日挑战开场：3-2-1 倒计时（网络取种子与倒计时并行，超时回退本地日期种子）
+    property int dailyCountdown: -1
+    property bool dailySeedFetched: false
+    function startDailyFlow() {
+        if (dailyCountdown >= 0) return
+        if (isGameOver) return
+        dailySeedFetched = false
+        pauseGame()
+        apiGet("daily", function (ok, data) {
+            dailySeedFetched = true
+            if (ok && data && data.seed) dailySeed = data.seed
+        })
+        dailyCountdown = 3
+        dailyCdPop.restart()
+    }
+    function applyDailyStart() {
+        dailyCountdown = -1
+        if (!dailySeedFetched) {
+            var d = new Date()
+            dailySeed = (d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate()) % 2147483647
+        }
+        dailyRngState = dailySeed
+        dailyMode = true
+        startGame()
+    }
+    Timer {
+        id: dailyCdTimer
+        interval: 1000
+        repeat: true
+        running: dailyCountdown >= 0
+        onTriggered: {
+            dailyCountdown--
+            if (dailyCountdown < 0)
+                applyDailyStart()
+            else
+                dailyCdPop.restart()
+        }
+    }
 
     function prepareNextPiece() {
         nextShapeIndex = nextFromBag()
@@ -1494,6 +1532,51 @@ ApplicationWindow {
                 showToast("📸", "战报已保存")
             }
         }
+    }
+
+    // 每日挑战倒计时全屏层（z 高于所有菜单）
+    Rectangle {
+        anchors.fill: parent
+        visible: dailyCountdown >= 0
+        color: "#D2000000"
+        z: 70
+
+        MouseArea { anchors.fill: parent }   // 吞掉点击，倒计时期间不可操作
+
+        Column {
+            anchors.centerIn: parent
+            spacing: 24
+
+            Text {
+                text: "每日挑战"
+                color: "#ffd95a"
+                font.pixelSize: 38
+                font.bold: true
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                text: "全服同一串方块 · 成绩上今日榜"
+                color: "#999999"
+                font.pixelSize: 14
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+
+            Text {
+                id: dailyCdNum
+                text: dailyCountdown > 0 ? dailyCountdown : ""
+                color: "#ffffff"
+                font.pixelSize: 110
+                font.bold: true
+                style: Text.Outline
+                styleColor: "#2e7d5b"
+                anchors.horizontalCenter: parent.horizontalCenter
+            }
+        }
+    }
+    SequentialAnimation {
+        id: dailyCdPop
+        NumberAnimation { target: dailyCdNum; property: "scale"; from: 1.6; to: 1.0; duration: 420; easing.type: Easing.OutBack }
     }
 
     // 结算页「本局亮点」：毒舌评语规则表。排序 = 真惨（短命/零行）最优先 → 高光压制平庸嘲讽
@@ -4850,13 +4933,13 @@ ApplicationWindow {
 
                     Button {
                         text: "战绩"
-                        width: 66
+                        width: 84
                         onClicked: showStats = true
                     }
 
                     Button {
                         text: "排行"
-                        width: 66
+                        width: 84
                         onClicked: {
                             lbSource = "all"
                             fetchTop()
@@ -4865,16 +4948,32 @@ ApplicationWindow {
                     }
 
                     Button {
-                        text: "每日"
-                        width: 66
-                        highlighted: true
-                        onClicked: startDaily()
+                        text: "重开"
+                        width: 84
+                        onClicked: startGame()
+                    }
+                }
+
+                // 每日挑战：独立一行，金色调 + 倒计时开场
+                Button {
+                    width: 250
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: startDailyFlow()
+
+                    background: Rectangle {
+                        radius: 8
+                        color: "#5a4310"
+                        border.width: 1
+                        border.color: "#ffd95a"
                     }
 
-                    Button {
-                        text: "重开"
-                        width: 66
-                        onClicked: startGame()
+                    contentItem: Text {
+                        text: "🏆 每日挑战"
+                        color: "#ffd95a"
+                        font.pixelSize: 16
+                        font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
                     }
                 }
 
