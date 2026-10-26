@@ -132,7 +132,10 @@ ApplicationWindow {
     property bool submitPending: false
     property string myRankText: ""
     readonly property string apiBase: "https://blood-table.top/tetris/api/"
-    readonly property int settingsVersion: 4    // v4：四消120/连击6.5s 平衡性调整——全量清空历史（战绩+成就重开）
+    // 存档结构版本。⚠️ 只在存档格式不兼容时递增（会清空玩家历史）！
+    // 未来的计分/难度等平衡性调整禁止递增此版本——需要标记规则版本时
+    // 新增独立的 balanceVersion 属性，不得复用本机制（评审 P2 政策）
+    readonly property int settingsVersion: 4
     property int savedSettingsVersion: 0
     property string bgChoice: "t01"             // 当前背景主题
     property bool bgFallback: false             // 背景文件缺失时回退到内置图
@@ -1166,24 +1169,29 @@ ApplicationWindow {
             startGame()
         })
     }
-    // 每日挑战开场：3-2-1 倒计时（网络取种子与倒计时并行，超时回退本地日期种子）
+    // 每日挑战开场：3-2-1 倒计时（网络取种子与倒计时并行）。
+    // 「请求结束」与「拿到有效种子」分开管理：请求失败（dailySeedValid=false）
+    // 时回退本地日期种子，避免沿用昨天的旧种子导致序列与他人不一致
     property int dailyCountdown: -1
-    property bool dailySeedFetched: false
+    property bool dailySeedValid: false
     function startDailyFlow() {
         if (dailyCountdown >= 0) return
         if (isGameOver) return
-        dailySeedFetched = false
+        dailySeedValid = false
         pauseGame()
         apiGet("daily", function (ok, data) {
-            dailySeedFetched = true
-            if (ok && data && data.seed) dailySeed = data.seed
+            if (ok && data && data.seed !== undefined && data.seed !== null
+                    && isFinite(Number(data.seed))) {
+                dailySeed = Number(data.seed)
+                dailySeedValid = true
+            }
         })
         dailyCountdown = 3
         dailyCdPop.restart()
     }
     function applyDailyStart() {
         dailyCountdown = -1
-        if (!dailySeedFetched) {
+        if (!dailySeedValid) {
             var d = new Date()
             dailySeed = (d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate()) % 2147483647
         }
@@ -5458,11 +5466,16 @@ ApplicationWindow {
                         updateBanner.state = "downloading"
                         apiGet("patch/info", function (ok, data) {
                             if (ok && data && data.qml) {
-                                NativeUpdate.saveText(NativeUpdate.patchPath(), data.qml)
-                                // 版本标记与补丁同存：启动加载端据此拒载历史无标记/过旧的补丁
-                                NativeUpdate.saveText(NativeUpdate.patchVerPath(), String(updateBanner.qmlServerVer))
-                                patchVer = updateBanner.qmlServerVer
-                                updateBanner.state = "patch-ready"
+                                // 先写补丁本体，成功才写版本标记+更新本地版本号；
+                                // 写失败会留下无标记文件，启动加载端的版本门会拒载它（回退内置版）
+                                if (NativeUpdate.saveText(NativeUpdate.patchPath(), data.qml)) {
+                                    NativeUpdate.saveText(NativeUpdate.patchVerPath(), String(updateBanner.qmlServerVer))
+                                    patchVer = updateBanner.qmlServerVer
+                                    updateBanner.state = "patch-ready"
+                                } else {
+                                    showToast("📦", "补丁保存失败，请重试")
+                                    updateBanner.state = ""
+                                }
                             } else {
                                 updateBanner.state = ""
                             }
