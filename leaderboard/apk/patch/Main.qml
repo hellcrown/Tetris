@@ -1013,10 +1013,6 @@ ApplicationWindow {
                     recapCompact = false
                     showStats = true
                     shoot("stats-badges")
-                } else if (demoStep === 3) {
-                    buildAndShare()           // 战报图端到端验证（保存到应用外部目录）
-                } else if (demoStep === 4) {
-                    shoot("share-generated")
                 } else {
                     demoTimer.stop()
                     Qt.quit()
@@ -1398,177 +1394,6 @@ ApplicationWindow {
         if (!pool || pool.length === 0) return ""
         return pool[Math.floor(Math.random() * pool.length)]
     }
-    // ---- 战报分享卡：生成时全屏压暗预览一帧（grabToImage 需要条目真实渲染过），
-    //      150ms 后离屏抓图 640x960 → PNG 2x；4s 超时兜底提示 ----
-    property bool shareGenerating: false
-    Item {
-        id: shareHost
-        anchors.fill: parent
-        visible: shareGenerating
-        z: 65
-
-        Rectangle { anchors.fill: parent; color: "#D2000000" }
-
-        Item {
-        id: shareCard
-        width: 640
-        height: 960
-        x: (parent.width - width) / 2
-        y: Math.max(0, (parent.height - height) / 2)
-
-        Rectangle { anchors.fill: parent; color: "#16181c" }
-        Rectangle {
-            anchors.fill: parent
-            gradient: Gradient {
-                GradientStop { position: 0.0; color: "#2a2028" }
-                GradientStop { position: 1.0; color: "#16181c" }
-            }
-        }
-
-        Column {
-            anchors.centerIn: parent
-            spacing: 26
-
-            Text {
-                text: "俄罗斯方块"
-                color: "#8a8a8a"
-                font.pixelSize: 26
-                font.bold: true
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            Rectangle {
-                width: 380
-                height: 110
-                radius: 55
-                anchors.horizontalCenter: parent.horizontalCenter
-                color: "#33222222"
-                border.width: 3
-                border.color: gameGrade === "A+" || gameGrade === "A" ? "#ffd95a" : gameGrade === "B" ? "#9ac9ff" : gameGrade === "C" ? "#9be3a0" : "#cc7a7a"
-
-                Row {
-                    anchors.centerIn: parent
-                    spacing: 16
-
-                    Text {
-                        text: gameGrade
-                        color: gameGrade === "A+" || gameGrade === "A" ? "#ffd95a" : gameGrade === "B" ? "#9ac9ff" : gameGrade === "C" ? "#9be3a0" : "#cc7a7a"
-                        font.pixelSize: 64
-                        font.bold: true
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                    Text {
-                        text: scoreTarget + " 分"
-                        color: "#e8e8e8"
-                        font.pixelSize: 40
-                        font.bold: true
-                        anchors.verticalCenter: parent.verticalCenter
-                    }
-                }
-            }
-
-            Text {
-                text: gradeQuip()
-                color: "#ffd0a0"
-                font.pixelSize: 26
-                wrapMode: Text.WrapAnywhere
-                width: 520
-                horizontalAlignment: Text.AlignHCenter
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-
-            Row {
-                spacing: 34
-                anchors.horizontalCenter: parent.horizontalCenter
-
-                Repeater {
-                    model: [
-                        { v: totalClearedLines, l: "消行" },
-                        { v: "x" + maxCombo, l: "连击" },
-                        { v: tetrisCount, l: "四消" },
-                        { v: formatPlayTime(playSeconds), l: "用时" }
-                    ]
-                    delegate: Column {
-                        spacing: 4
-                        Text {
-                            text: "" + modelData.v
-                            color: "#ffffff"
-                            font.pixelSize: 34
-                            font.bold: true
-                            anchors.horizontalCenter: parent.horizontalCenter
-                        }
-                        Text {
-                            text: modelData.l
-                            color: "#888888"
-                            font.pixelSize: 20
-                            anchors.horizontalCenter: parent.horizontalCenter
-                        }
-                    }
-                }
-            }
-
-            Text {
-                text: Qt.formatDate(new Date(), "yyyy.MM.dd")
-                color: "#666666"
-                font.pixelSize: 22
-                anchors.horizontalCenter: parent.horizontalCenter
-            }
-        }
-
-        Text {
-            anchors.bottom: parent.bottom
-            anchors.bottomMargin: 40
-            anchors.horizontalCenter: parent.horizontalCenter
-            text: "blood-table.top/tetris/api/download · 来挨骂"
-            color: "#5a6a72"
-            font.pixelSize: 22
-        }
-        }
-    }
-    property string sharePath: ""
-    property bool shareDoneFlag: false
-    function buildAndShare() {
-        if (shareGenerating) return
-        shareDoneFlag = false
-        sharePath = NativeUpdate.apkDownloadPath("share-report.png")
-        console.warn("[Share] 开始生成 → " + sharePath)
-        shareGenerating = true
-        shareGrabTimer.restart()
-        shareFailTimer.restart()
-    }
-    Timer {
-        id: shareGrabTimer
-        interval: 150   // 等渲染循环把卡片画过至少一帧再抓
-        onTriggered: NativeUpdate.grabItem(shareCard, sharePath)
-    }
-    Timer {
-        id: shareFailTimer
-        interval: 4000
-        onTriggered: {
-            if (!shareDoneFlag) {
-                shareGenerating = false
-                showToast("📸", "生成失败，请重试")
-            }
-        }
-    }
-    Connections {
-        target: NativeUpdate
-        function onShareDone(path) {
-            shareDoneFlag = true
-            shareGenerating = false
-            if (path === "") {
-                showToast("📸", "战报生成失败")
-                return
-            }
-            if (Qt.platform.os === "android") {
-                NativeUpdate.shareImage(path)
-                showToast("📸", "战报已生成，去分享吧")
-            } else {
-                showToast("📸", "战报已保存")
-            }
-        }
-    }
-
     // 每日挑战倒计时全屏层（z 高于所有菜单）
     Rectangle {
         anchors.fill: parent
@@ -4000,12 +3825,6 @@ ApplicationWindow {
                         font.pixelSize: 13
                         anchors.horizontalCenter: parent.horizontalCenter
                         visible: myRankText !== ""
-                    }
-
-                    Button {
-                        text: "📸 生成战报"
-                        anchors.horizontalCenter: parent.horizontalCenter
-                        onClicked: buildAndShare()
                     }
 
                     Button {
