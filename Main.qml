@@ -1214,11 +1214,12 @@ ApplicationWindow {
     }
 
     function scoreForClearedLines(linesCleared) {
-        // 经典倍率制（缩放版）: 单消10, 双消30, 三消50, 四消80
+        // 单消10, 双消30, 三消50, 四消160——四消加倍奖励：
+        // 摆盘期间连击必断（8秒衰减），旧值80会让"磨单消养连击"收益反超四消
         if (linesCleared === 1) return 10
         if (linesCleared === 2) return 30
         if (linesCleared === 3) return 50
-        if (linesCleared >= 4) return 80
+        if (linesCleared >= 4) return 160
         return 0
     }
 
