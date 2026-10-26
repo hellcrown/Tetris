@@ -1690,6 +1690,8 @@ ApplicationWindow {
     function refreshDanger() {
         dangerLv = dangerLevel()
         if (dangerLv >= 3) surviveArmed = true   // 曾抵达「即将失败」，为逆风翻盘蓄势
+        // 「流畅操作」的"连续"语义：堆叠进入顶部 4 行即断链（与成就描述一致）
+        if (dangerLv >= 2) cleanClearStreak = 0
     }
 
     // 移动/旋转前的当前形态快照（残影）
