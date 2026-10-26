@@ -213,7 +213,7 @@ const server = http.createServer((req, res) => {
         dailyStore.entries.push({ uid, name, score, lines, time, ts: Date.now() })
       }
       saveDaily()
-      const rank = dailyStore.entries.slice().sort((a, b) => b.score - a.score || a.time - a.time).findIndex(e => e.uid === uid) + 1
+      const rank = dailyStore.entries.slice().sort((a, b) => b.score - a.score || a.time - b.time).findIndex(e => e.uid === uid) + 1
       return send(res, 200, { ok: true, rank })
     })
   }

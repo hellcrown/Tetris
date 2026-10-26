@@ -3830,7 +3830,10 @@ ApplicationWindow {
                     Button {
                         text: "重新开始"
                         anchors.horizontalCenter: parent.horizontalCenter
-                        onClicked: startGame()
+                        onClicked: {
+                            dailyMode = false   // 重新开始 = 回普通模式
+                            startGame()
+                        }
                     }
                 }
             }
@@ -4804,7 +4807,10 @@ ApplicationWindow {
                     Button {
                         text: "重开"
                         width: 84
-                        onClicked: startGame()
+                        onClicked: {
+                            dailyMode = false   // 重开 = 回普通模式（每日挑战走金色按钮）
+                            startGame()
+                        }
                     }
                 }
 
