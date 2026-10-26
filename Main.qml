@@ -141,6 +141,7 @@ ApplicationWindow {
     property bool showBgPicker: false
     property bool showStats: false
     property bool showDiag: false          // 隐藏诊断日志页（连点"已暂停"标题 5 次打开）
+    property bool showScoreRules: false    // 得分细则面板（菜单入口，数值动态取自计分函数）
     property bool forceFrames: false       // 回前台后强推帧 3 秒：卓易通锁屏会吞 Surface，
                                            // 解锁后必须持续冲刷帧才能把新画面顶上去（用户实测
                                            // 锁屏前开过菜单=帧泵在跑→解锁不黑屏，据此推广）
@@ -4225,14 +4226,6 @@ ApplicationWindow {
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
 
-                Text {
-                    text: "加分：消行 10/30/50/80 ×连击\n四消连续 ×1.5 · 到底+2/格 · ↓+1/格"
-                    color: "#B9C4C8"
-                    font.pixelSize: 12
-                    horizontalAlignment: Text.AlignHCenter
-                    anchors.horizontalCenter: parent.horizontalCenter
-                }
-
                 Grid {
                     columns: 3
                     spacing: 8
@@ -4492,6 +4485,104 @@ ApplicationWindow {
                     width: 120
                     anchors.horizontalCenter: parent.horizontalCenter
                     onClicked: showStats = false
+                }
+            }
+        }
+    }
+
+    // 得分细则面板（菜单入口；基础分动态取自计分函数，平衡调整自动同步）
+    Rectangle {
+        anchors.fill: parent
+        visible: showScoreRules
+        color: "#B0000000"
+        z: 47
+
+        MouseArea { anchors.fill: parent; onClicked: showScoreRules = false }
+
+        Rectangle {
+            width: 312
+            height: rulesCol.implicitHeight + 40
+            radius: 14
+            color: "#2a2a2a"
+            border.color: "#666666"
+            border.width: 1
+            anchors.centerIn: parent
+
+            Column {
+                id: rulesCol
+                anchors.centerIn: parent
+                spacing: 11
+                width: 264
+
+                Text {
+                    text: "📖 得分细则"
+                    color: "#ffd95a"
+                    font.pixelSize: 19
+                    font.bold: true
+                    anchors.horizontalCenter: parent.horizontalCenter
+                }
+
+                Repeater {
+                    model: [
+                        ["单消", scoreForClearedLines(1)],
+                        ["双消", scoreForClearedLines(2)],
+                        ["三消", scoreForClearedLines(3)],
+                        ["四消", scoreForClearedLines(4)]
+                    ]
+                    delegate: Row {
+                        width: parent.width
+
+                        Text {
+                            text: modelData[0]
+                            color: "#B9C4C8"
+                            font.pixelSize: 14
+                            width: 140
+                        }
+                        Text {
+                            text: modelData[1] + " × 连击数"
+                            color: "#F5F1E8"
+                            font.pixelSize: 14
+                            font.bold: true
+                            horizontalAlignment: Text.AlignRight
+                            width: 110
+                        }
+                    }
+                }
+
+                Rectangle { width: parent.width; height: 1; color: "#4a4a4a" }
+
+                Text {
+                    text: "· B2B：连续两次消行都是四消，第二个起 ×1.5（左上角金色角标=待命）"
+                    color: "#B9C4C8"
+                    font.pixelSize: 12
+                    wrapMode: Text.WrapAnywhere
+                    width: parent.width
+                }
+                Text {
+                    text: "· 连击能量：消行回满 100，约 6.5 秒未消行衰减归零，归零连击结束"
+                    color: "#B9C4C8"
+                    font.pixelSize: 12
+                    wrapMode: Text.WrapAnywhere
+                    width: parent.width
+                }
+                Text {
+                    text: "· 硬降每格 +2 分，软降每格 +1 分"
+                    color: "#B9C4C8"
+                    font.pixelSize: 12
+                }
+                Text {
+                    text: "· 每日挑战：全服同一串方块，成绩计入今日榜"
+                    color: "#B9C4C8"
+                    font.pixelSize: 12
+                    wrapMode: Text.WrapAnywhere
+                    width: parent.width
+                }
+
+                Button {
+                    text: "知道了"
+                    width: 120
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: showScoreRules = false
                 }
             }
         }
@@ -4893,6 +4984,28 @@ ApplicationWindow {
                         color: "#ffd95a"
                         font.pixelSize: 16
                         font.bold: true
+                        horizontalAlignment: Text.AlignHCenter
+                        verticalAlignment: Text.AlignVCenter
+                    }
+                }
+
+                // 得分细则：数值动态取自计分函数，平衡调整自动同步
+                Button {
+                    width: 250
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    onClicked: showScoreRules = true
+
+                    background: Rectangle {
+                        radius: 8
+                        color: "#3a3a3a"
+                        border.width: 1
+                        border.color: "#666666"
+                    }
+
+                    contentItem: Text {
+                        text: "📖 得分细则"
+                        color: "white"
+                        font.pixelSize: 15
                         horizontalAlignment: Text.AlignHCenter
                         verticalAlignment: Text.AlignVCenter
                     }
