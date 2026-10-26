@@ -1192,9 +1192,9 @@ ApplicationWindow {
         "lines30":  { icon: "🧱", name: "高产一局", hint: "单局累计消行 ≥ 30" },
         "score10k": { icon: "💰", name: "万分单局", hint: "单局得分 ≥ 10000" },
         "flash10":  { icon: "⚡", name: "闪电战", hint: "开局 60 秒内消行 ≥ 10" },
-        "lines100": { icon: "🎖️", name: "百行斩", hint: "累计消行达到 100" },
-        "veteran":  { icon: "🎗️", name: "老兵", hint: "累计完成 50 局" },
-        "best10k":  { icon: "👑", name: "万分俱乐部", hint: "历史最高分 ≥ 10000" }
+        "lines100": { icon: "🎖️", name: "百行斩", hint: "累计消行达到 100", milestone: true },
+        "veteran":  { icon: "🎗️", name: "老兵", hint: "累计完成 50 局", milestone: true },
+        "best10k":  { icon: "👑", name: "万分俱乐部", hint: "历史最高分 ≥ 10000", milestone: true }
     })
     // 展示顺序：操作技巧 → 单局里程碑 → 生涯成就
     readonly property var badgeOrder: [
@@ -1206,14 +1206,15 @@ ApplicationWindow {
         for (var i = 0; i < gameBadges.length; i++)
             if (gameBadges[i] === id) return
         gameBadges.push(id)
-        // 永久成就：首次解锁终身保留，之后每次达成累计次数（Settings 持久化）
         var rec = badgeRecord(id)
-        if (rec === null) {
-            savedBadges.push({ id: id, n: 1, ts: Date.now() })
-            showToast(badgeDefs[id].icon, "成就解锁 · " + badgeDefs[id].name)
-        } else {
+        if (rec !== null) {
+            // 里程碑成就（生涯累计型，条件达标后恒为真）：终身一次，不重复计数不重复弹
+            if (badgeDefs[id].milestone === true) return
             rec.n++
             showToast(badgeDefs[id].icon, badgeDefs[id].name + " ×" + rec.n)
+        } else {
+            savedBadges.push({ id: id, n: 1, ts: Date.now() })
+            showToast(badgeDefs[id].icon, "成就解锁 · " + badgeDefs[id].name)
         }
         savedBadges = savedBadges.slice()   // 重新赋值触发 Settings 持久化
     }
