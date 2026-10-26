@@ -1398,12 +1398,23 @@ ApplicationWindow {
         if (!pool || pool.length === 0) return ""
         return pool[Math.floor(Math.random() * pool.length)]
     }
-    // ---- 战报分享卡：离屏渲染 640x960 PNG（2x 采样），评分+毒舌+统计+下载址 ----
+    // ---- 战报分享卡：生成时全屏压暗预览一帧（grabToImage 需要条目真实渲染过），
+    //      150ms 后离屏抓图 640x960 → PNG 2x；4s 超时兜底提示 ----
+    property bool shareGenerating: false
     Item {
+        id: shareHost
+        anchors.fill: parent
+        visible: shareGenerating
+        z: 65
+
+        Rectangle { anchors.fill: parent; color: "#D2000000" }
+
+        Item {
         id: shareCard
-        visible: false
         width: 640
         height: 960
+        x: (parent.width - width) / 2
+        y: Math.max(0, (parent.height - height) / 2)
 
         Rectangle { anchors.fill: parent; color: "#16181c" }
         Rectangle {
@@ -1512,15 +1523,39 @@ ApplicationWindow {
             color: "#5a6a72"
             font.pixelSize: 22
         }
+        }
     }
     property string sharePath: ""
+    property bool shareDoneFlag: false
     function buildAndShare() {
+        if (shareGenerating) return
+        shareDoneFlag = false
         sharePath = NativeUpdate.apkDownloadPath("share-report.png")
-        NativeUpdate.grabItem(shareCard, sharePath)
+        console.warn("[Share] 开始生成 → " + sharePath)
+        shareGenerating = true
+        shareGrabTimer.restart()
+        shareFailTimer.restart()
+    }
+    Timer {
+        id: shareGrabTimer
+        interval: 150   // 等渲染循环把卡片画过至少一帧再抓
+        onTriggered: NativeUpdate.grabItem(shareCard, sharePath)
+    }
+    Timer {
+        id: shareFailTimer
+        interval: 4000
+        onTriggered: {
+            if (!shareDoneFlag) {
+                shareGenerating = false
+                showToast("📸", "生成失败，请重试")
+            }
+        }
     }
     Connections {
         target: NativeUpdate
         function onShareDone(path) {
+            shareDoneFlag = true
+            shareGenerating = false
             if (path === "") {
                 showToast("📸", "战报生成失败")
                 return
