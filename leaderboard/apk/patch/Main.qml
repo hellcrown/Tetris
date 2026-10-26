@@ -225,7 +225,7 @@ ApplicationWindow {
     property bool recapCompact: false     // 结算页折叠态（点头部切换）
     property int dangerLv: 0              // 危险三段：1=顶部6行有块 2=顶部4行 3=顶部2行（命令式更新）
 
-    // 连击能量槽（连击保鲜）：消行回满 100，落锁不消行随时间衰减（满槽 8 秒），
+    // 连击能量槽（连击保鲜）：消行回满 100，落锁不消行随时间衰减（满槽 6.5 秒），
     // 归零连击结束。衰减用 100ms 游戏时钟累计，暂停即停（单调游戏时钟）。
     property real comboEnergy: 0
     Timer {
@@ -233,7 +233,7 @@ ApplicationWindow {
         interval: 100
         running: !isPaused && !isGameOver && comboEnergy > 0
         onTriggered: {
-            comboEnergy = Math.max(0, comboEnergy - 1.25)   // 100/8s = 12.5每秒
+            comboEnergy = Math.max(0, comboEnergy - 1.54)   // 100/6.5s ≈ 15.4每秒
             if (comboEnergy === 0) {
                 comboStreak = 0
                 comboDisplayText = ""
@@ -1214,12 +1214,12 @@ ApplicationWindow {
     }
 
     function scoreForClearedLines(linesCleared) {
-        // 单消10, 双消30, 三消50, 四消160——四消加倍奖励：
-        // 摆盘期间连击必断（8秒衰减），旧值80会让"磨单消养连击"收益反超四消
+        // 单消10, 双消30, 三消50, 四消120——四消高奖励但不夸张（单消的12倍）：
+        // 摆盘期间连击必断，四消实际发生在低连击；120 保证四消@x1(120) > 单消@x8(80)
         if (linesCleared === 1) return 10
         if (linesCleared === 2) return 30
         if (linesCleared === 3) return 50
-        if (linesCleared >= 4) return 160
+        if (linesCleared >= 4) return 120
         return 0
     }
 
