@@ -4391,18 +4391,22 @@ ApplicationWindow {
                     font.bold: true
                 }
 
-                ScrollView {
+                Item {
                     width: parent.width
                     height: 330
-                    contentWidth: width
-                    contentHeight: badgeListCol.implicitHeight
-                    clip: true
-                    ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
 
-                    Column {
-                        id: badgeListCol
-                        width: parent.width
-                        spacing: 12
+                    Flickable {
+                        id: badgeScroll
+                        anchors.fill: parent
+                        contentWidth: width
+                        contentHeight: badgeListCol.implicitHeight
+                        clip: true
+                        boundsBehavior: Flickable.StopAtBounds
+
+                        Column {
+                            id: badgeListCol
+                            width: parent.width
+                            spacing: 12
 
                         Repeater {
                             model: root.badgeOrder
@@ -4448,6 +4452,39 @@ ApplicationWindow {
                             }
                         }
                     }
+                    }
+
+                    onVisibleChanged: {
+                        if (visible) {
+                            badgeScroll.contentY = 0
+                            badgeScrollHintTimer.restart()
+                        }
+                    }
+
+                    // 底部渐隐：还有未展示的徽章时的滚动引导（视口层，不随内容滚动）
+                    Rectangle {
+                        anchors.bottom: parent.bottom
+                        width: parent.width
+                        height: 42
+                        enabled: false
+                        visible: badgeScroll.contentHeight > badgeScroll.height + 4
+                                 && badgeScroll.contentY + badgeScroll.height < badgeScroll.contentHeight - 4
+                        gradient: Gradient {
+                            GradientStop { position: 0.0; color: "#002a2a2a" }
+                            GradientStop { position: 1.0; color: "#ff2a2a2a" }
+                        }
+                    }
+                }
+
+                Timer {
+                    id: badgeScrollHintTimer
+                    interval: 250
+                    onTriggered: if (badgeScroll.contentHeight > badgeScroll.height + 4) badgeScrollHint.restart()
+                }
+                SequentialAnimation {
+                    id: badgeScrollHint
+                    NumberAnimation { target: badgeScroll; property: "contentY"; to: 64; duration: 240; easing.type: Easing.OutQuad }
+                    NumberAnimation { target: badgeScroll; property: "contentY"; to: 0; duration: 240; easing.type: Easing.OutQuad }
                 }
 
                 Button {
@@ -4729,11 +4766,26 @@ ApplicationWindow {
                 id: settingsFlick
                 anchors.fill: parent
                 anchors.margins: 12
+                anchors.bottomMargin: 16
                 contentWidth: width
                 contentHeight: settingsColumn.height
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
                 clip: true
+
+                // 底部渐隐：提示「下面还有设置项」可下滑
+                Rectangle {
+                    anchors.bottom: parent.bottom
+                    width: parent.width
+                    height: 40
+                    enabled: false
+                    visible: settingsFlick.contentHeight > settingsFlick.height + 4
+                             && settingsFlick.contentY + settingsFlick.height < settingsFlick.contentHeight - 4
+                    gradient: Gradient {
+                        GradientStop { position: 0.0; color: "#002a2a2a" }
+                        GradientStop { position: 1.0; color: "#ff2a2a2a" }
+                    }
+                }
 
             Column {
                 id: settingsColumn
