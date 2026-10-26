@@ -216,6 +216,7 @@ ApplicationWindow {
     property int b2bCount: 0              // 本局 B2B 次数（结果徽章）
     property var gameBadges: []           // 本局已获过程徽章 id
     property var savedBadges: []          // 永久徽章成就 [{id, n, ts}]：解锁一次终身保留，n=累计次数
+    property var clearFlags: ({})         // 本局出现过的消行类型（大满贯判定用：1/2/3/4 全集齐）
     property int cleanClearStreak: 0      // 连续未入危险区（顶部4行）的消行次数
     property int newUnlocks: 0            // 本局新解锁背景数（结算统计格）
     property bool recapCompact: false     // 结算页折叠态（点头部切换）
@@ -788,6 +789,18 @@ ApplicationWindow {
             bestScore = 0
             savedSettingsVersion = settingsVersion
         }
+        // 徽章 id 迁移（链式改版一次性）：旧单枚 id → 对应 I 阶（次数保留）
+        var legacyBadgeMap = { "veteran": "veteran1", "lines100": "lines100_1",
+                               "best10k": "best10k_1", "combo10": "combo10_1", "lines30": "lines30_1" }
+        var badgeMigrated = false
+        for (var bi = 0; bi < savedBadges.length; bi++) {
+            var oid = savedBadges[bi].id
+            if (legacyBadgeMap[oid] !== undefined) {
+                savedBadges[bi].id = legacyBadgeMap[oid]
+                badgeMigrated = true
+            }
+        }
+        if (badgeMigrated) savedBadges = savedBadges.slice()
         // uid 稳定化：安卓用 ANDROID_ID（卸载重装不变），杜绝同名字分家；
         // 旧的随机 uid 交由服务端在下次提交时并入（adopt），成绩不丢
         var deviceId = typeof nativeDeviceId !== "undefined" ? String(nativeDeviceId) : ""
@@ -965,11 +978,15 @@ ApplicationWindow {
                         { id: "precise", n: 4, ts: 0 },
                         { id: "survivor", n: 2, ts: 0 },
                         { id: "tetris2", n: 2, ts: 0 },
-                        { id: "combo10", n: 1, ts: 0 },
-                        { id: "lines30", n: 2, ts: 0 },
+                        { id: "combo10_1", n: 3, ts: 0 },
+                        { id: "combo10_2", n: 1, ts: 0 },
+                        { id: "lines30_1", n: 2, ts: 0 },
+                        { id: "lines30_2", n: 1, ts: 0 },
                         { id: "score10k", n: 1, ts: 0 },
                         { id: "flash10", n: 5, ts: 0 },
-                        { id: "lines100", n: 1, ts: 0 }
+                        { id: "veteran1", n: 1, ts: 0 },
+                        { id: "lines100_1", n: 1, ts: 0 },
+                        { id: "lines100_2", n: 1, ts: 0 }
                     ]
                     isGameOver = true
                     shoot("recap")
@@ -1183,23 +1200,40 @@ ApplicationWindow {
 
     // ---- 阶段5：过程徽章 + 小徽章 toast（局内里程碑复用同一 toast）----
     readonly property var badgeDefs: ({
-        "clutch":   { icon: "🛡️", name: "极限救场", hint: "在危险态（堆叠进入顶部 4 行）完成消行" },
-        "flow":     { icon: "🌊", name: "流畅操作", hint: "连续 6 次消行未进入危险区" },
-        "precise":  { icon: "🎯", name: "精准落位", hint: "锁定的方块恰好全部被消去" },
-        "survivor": { icon: "⛑️", name: "逆风翻盘", hint: "从「即将失败」边缘回到安全区" },
-        "tetris2":  { icon: "💎", name: "双响炮", hint: "单局打出 2 次四行消除" },
-        "combo10":  { icon: "🔥", name: "连击大师", hint: "单局连击达到 10" },
-        "lines30":  { icon: "🧱", name: "高产一局", hint: "单局累计消行 ≥ 30" },
-        "score10k": { icon: "💰", name: "万分单局", hint: "单局得分 ≥ 10000" },
-        "flash10":  { icon: "⚡", name: "闪电战", hint: "开局 60 秒内消行 ≥ 10" },
-        "lines100": { icon: "🎖️", name: "百行斩", hint: "累计消行达到 100", milestone: true },
-        "veteran":  { icon: "🎗️", name: "老兵", hint: "累计完成 50 局", milestone: true },
-        "best10k":  { icon: "👑", name: "万分俱乐部", hint: "历史最高分 ≥ 10000", milestone: true }
+        "clutch":     { icon: "🛡️", name: "极限救场", hint: "在危险态（堆叠进入顶部 4 行）完成消行" },
+        "flow":       { icon: "🌊", name: "流畅操作", hint: "连续 6 次消行未进入危险区" },
+        "precise":    { icon: "🎯", name: "精准落位", hint: "锁定的方块恰好全部被消去" },
+        "survivor":   { icon: "⛑️", name: "逆风翻盘", hint: "从「即将失败」边缘回到安全区" },
+        "grandSlam":  { icon: "🌈", name: "大满贯", hint: "单局集齐 1/2/3/4 行消除" },
+        "tetris2":    { icon: "💎", name: "双响炮", hint: "单局打出 2 次四行消除" },
+        "score10k":   { icon: "💰", name: "万分单局", hint: "单局得分 ≥ 10000" },
+        "flash10":    { icon: "⚡", name: "闪电战", hint: "开局 60 秒内消行 ≥ 10" },
+        "combo10_1":  { icon: "🔥", name: "连击大师 I", hint: "单局连击达到 10" },
+        "combo10_2":  { icon: "🔥", name: "连击大师 II", hint: "单局连击达到 15" },
+        "combo10_3":  { icon: "🔥", name: "连击大师 III", hint: "单局连击达到 20" },
+        "lines30_1":  { icon: "🧱", name: "高产一局 I", hint: "单局累计消行 ≥ 30" },
+        "lines30_2":  { icon: "🧱", name: "高产一局 II", hint: "单局累计消行 ≥ 50" },
+        "lines30_3":  { icon: "🧱", name: "高产一局 III", hint: "单局累计消行 ≥ 80" },
+        "veteran1":   { icon: "🎗️", name: "老兵 I", hint: "累计完成 50 局", milestone: true },
+        "veteran2":   { icon: "🎗️", name: "老兵 II", hint: "累计完成 100 局", milestone: true },
+        "veteran3":   { icon: "🎗️", name: "老兵 III", hint: "累计完成 200 局", milestone: true },
+        "lines100_1": { icon: "🎖️", name: "百行斩 I", hint: "累计消行达到 100", milestone: true },
+        "lines100_2": { icon: "🎖️", name: "百行斩 II", hint: "累计消行达到 500", milestone: true },
+        "lines100_3": { icon: "🎖️", name: "百行斩 III", hint: "累计消行达到 1000", milestone: true },
+        "best10k_1":  { icon: "👑", name: "万分俱乐部 I", hint: "历史最高分 ≥ 10000", milestone: true },
+        "best10k_2":  { icon: "👑", name: "万分俱乐部 II", hint: "历史最高分 ≥ 20000", milestone: true },
+        "best10k_3":  { icon: "👑", name: "万分俱乐部 III", hint: "历史最高分 ≥ 50000", milestone: true },
+        "marathon":   { icon: "🕰️", name: "马拉松", hint: "累计游玩时长 ≥ 2 小时", milestone: true }
     })
-    // 展示顺序：操作技巧 → 单局里程碑 → 生涯成就
+    // 展示顺序：操作技巧 → 单局（含成长链）→ 生涯成长链
     readonly property var badgeOrder: [
-        "clutch", "flow", "precise", "survivor", "tetris2", "combo10",
-        "lines30", "score10k", "flash10", "lines100", "veteran", "best10k"
+        "clutch", "flow", "precise", "survivor", "grandSlam", "tetris2",
+        "combo10_1", "combo10_2", "combo10_3",
+        "lines30_1", "lines30_2", "lines30_3",
+        "score10k", "flash10",
+        "veteran1", "veteran2", "veteran3",
+        "lines100_1", "lines100_2", "lines100_3",
+        "best10k_1", "best10k_2", "best10k_3", "marathon"
     ]
     property bool surviveArmed: false     // 本局曾进入危险三段（逆风翻盘判定用）
     function earnBadge(id) {
@@ -1532,6 +1566,7 @@ ApplicationWindow {
         gameBadges = []
         cleanClearStreak = 0
         surviveArmed = false
+        clearFlags = ({})
         newUnlocks = 0
         recapCompact = false
         dangerLv = 0
@@ -1757,10 +1792,18 @@ ApplicationWindow {
         }
         // 单局里程碑徽章（条件严格可复现；earnBadge 内部按局去重 + 永久计数）
         if (playSeconds <= 60 && totalClearedLines >= 10) earnBadge("flash10")
-        if (totalClearedLines >= 30) earnBadge("lines30")
+        if (totalClearedLines >= 30) earnBadge("lines30_1")
+        if (totalClearedLines >= 50) earnBadge("lines30_2")
+        if (totalClearedLines >= 80) earnBadge("lines30_3")
         if (scoreTarget >= 10000) earnBadge("score10k")
-        if (comboStreak >= 10) earnBadge("combo10")
+        if (comboStreak >= 10) earnBadge("combo10_1")
+        if (comboStreak >= 15) earnBadge("combo10_2")
+        if (comboStreak >= 20) earnBadge("combo10_3")
         if (tetrisCount >= 2) earnBadge("tetris2")
+        // 大满贯：单局集齐 1/2/3/4 行消除
+        clearFlags[linesCleared] = true
+        if (clearFlags[1] === true && clearFlags[2] === true && clearFlags[3] === true && clearFlags[4] === true)
+            earnBadge("grandSlam")
         vibe(linesCleared >= 4 ? 70 : 35)
         scoreTimer.start()
     }
@@ -1974,10 +2017,17 @@ ApplicationWindow {
         totalLinesAll += totalClearedLines
         totalSecondsAll += playSeconds
         maxComboAll = Math.max(maxComboAll, maxCombo)
-        // 生涯成就（累计值达标即解锁，终身保留）
-        if (totalLinesAll >= 100) earnBadge("lines100")
-        if (totalGames >= 50) earnBadge("veteran")
-        if (bestScore >= 10000) earnBadge("best10k")
+        // 生涯成就成长链（累计值达标即解锁对应阶，里程碑语义终身一次；跨档时多枚同拿）
+        if (totalLinesAll >= 100) earnBadge("lines100_1")
+        if (totalLinesAll >= 500) earnBadge("lines100_2")
+        if (totalLinesAll >= 1000) earnBadge("lines100_3")
+        if (totalGames >= 50) earnBadge("veteran1")
+        if (totalGames >= 100) earnBadge("veteran2")
+        if (totalGames >= 200) earnBadge("veteran3")
+        if (bestScore >= 10000) earnBadge("best10k_1")
+        if (bestScore >= 20000) earnBadge("best10k_2")
+        if (bestScore >= 50000) earnBadge("best10k_3")
+        if (totalSecondsAll >= 7200) earnBadge("marathon")
         // 已有名字则本局成绩自动上榜（真实行数/用时），失败仍可手动点按钮重提
         if (playerName !== "" && scoreTarget > 0)
             submitScore()
