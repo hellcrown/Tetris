@@ -132,7 +132,7 @@ ApplicationWindow {
     property bool submitPending: false
     property string myRankText: ""
     readonly property string apiBase: "https://blood-table.top/tetris/api/"
-    readonly property int settingsVersion: 3    // 设置结构版本：升级时清旧版历史记录（最高分归零）
+    readonly property int settingsVersion: 4    // v4：四消120/连击6.5s 平衡性调整——全量清空历史（战绩+成就重开）
     property int savedSettingsVersion: 0
     property string bgChoice: "t01"             // 当前背景主题
     property bool bgFallback: false             // 背景文件缺失时回退到内置图
@@ -799,9 +799,15 @@ ApplicationWindow {
 
     // --- 初始化 ---
     Component.onCompleted: {
-        // 设置结构升级：清旧版历史记录（最高分），保留名字/操作/震动偏好
+        // 设置结构升级：v4 平衡性调整（四消120/连击6.5s）——历史战绩与成就全量清零，
+        // 名字/uid/操作/特效/护眼/灵敏度/背景收藏保留
         if (savedSettingsVersion < settingsVersion) {
             bestScore = 0
+            totalGames = 0
+            totalLinesAll = 0
+            totalSecondsAll = 0
+            maxComboAll = 0
+            savedBadges = []
             savedSettingsVersion = settingsVersion
         }
         // 徽章 id 迁移（链式改版一次性）：旧单枚 id → 对应 I 阶（次数保留）
