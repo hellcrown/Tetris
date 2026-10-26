@@ -174,19 +174,20 @@ ApplicationWindow {
     readonly property bool calmFx: eyeCare || reduceMotion   // 统一闸门：无白闪/无震屏/无爆闪粒子/无背景漂移
     readonly property bool zenFx: fxPreset === "zen"
     // 参数表（全部走缩放系数，随时可调）
-    readonly property real fxShakeScale: calmFx ? 0 : (zenFx ? 0.4 : 1.0)      // 震屏幅度
-    readonly property int  fxFlashMs: calmFx ? 0 : (zenFx ? 240 : 180)         // 全屏白闪衰减时长
-    readonly property real fxFlashPeak: calmFx ? 0 : (zenFx ? 0.22 : 0.85)     // 白闪峰值（治愈=轻柔提亮）
-    readonly property real fxParticleScale: calmFx ? 0 : (zenFx ? 0.65 : 1.0)  // 粒子数量
-    readonly property real fxBreathScale: eyeCare ? 3.2 : reduceMotion ? 2.2 : (zenFx ? 1.6 : 1.0)   // 呼吸/闪烁周期倍率
+    readonly property real fxShakeScale: calmFx ? 0 : (zenFx ? 0.4 : 1.35)      // 震屏幅度（街机加码 1.35×）
+    readonly property int  fxFlashMs: calmFx ? 0 : (zenFx ? 240 : 150)         // 街机白闪更快
+    readonly property real fxFlashPeak: calmFx ? 0 : (zenFx ? 0.22 : 1.0)      // 街机全白
+    readonly property real fxParticleScale: calmFx ? 0 : (zenFx ? 0.65 : 1.5)  // 街机粒子 1.5×
+    readonly property real fxBreathScale: eyeCare ? 3.2 : reduceMotion ? 2.2 : (zenFx ? 1.6 : 0.75)   // 街机呼吸更快
+    readonly property bool arcadeFx: !calmFx && !zenFx   // 街机档专属表现（护眼/减少动态不受影响）
     // 落锁闪光：每次落块都会触发（约 1Hz），白光最扎眼 → 护眼模式改成方块自身色的柔和提亮
-    // （0.6：保留落块确认感，仍远低于白闪的 0.9）
-    readonly property real fxLockFlashAlpha: eyeCare ? 0.6 : 0.9
-    readonly property int  fxLockFlashMs: eyeCare ? 240 : 270
+    // （0.6：保留落块确认感，仍远低于白闪的 0.9）；街机全亮+更干脆
+    readonly property real fxLockFlashAlpha: eyeCare ? 0.6 : (arcadeFx ? 1.0 : 0.9)
+    readonly property int  fxLockFlashMs: eyeCare ? 240 : (arcadeFx ? 210 : 270)
     // 整行爆闪：一整行 12 格同时转白，是全屏最大的亮度阶跃
-    // （0.35：确认感保留，峰值只有街机档的 40%）
-    readonly property real fxRowFlashAlpha: eyeCare ? 0.35 : 0.85
-    readonly property int  fxRowFlashMs: eyeCare ? 320 : 200
+    // （0.35：确认感保留，峰值只有街机档的 40%）；街机全亮快闪
+    readonly property real fxRowFlashAlpha: eyeCare ? 0.35 : (arcadeFx ? 1.0 : 0.85)
+    readonly property int  fxRowFlashMs: eyeCare ? 320 : (arcadeFx ? 150 : 200)
     readonly property bool smoothFall: eyeCare                                 // 平滑下落（消除快速下落的阶跃频闪）
     readonly property int  breakReminderMinutes: 20                            // 休息提醒间隔（分钟）
     property bool fxSurge: false           // P1 大事件进行中：背景/氛围层让位（压暗+减速）
@@ -769,10 +770,10 @@ ApplicationWindow {
     SequentialAnimation {
         id: tetrisRingsAnimation
         ParallelAnimation {
-            NumberAnimation { target: tetrisRing1; property: "scale"; from: 0.25; to: 2.6; duration: 800; easing.type: Easing.OutCubic }
-            NumberAnimation { target: tetrisRing1; property: "opacity"; from: 0.85; to: 0; duration: 800 }
-            NumberAnimation { target: tetrisRing2; property: "scale"; from: 0.15; to: 1.7; duration: 1050; easing.type: Easing.OutCubic }
-            NumberAnimation { target: tetrisRing2; property: "opacity"; from: 0.7; to: 0; duration: 1050 }
+            NumberAnimation { target: tetrisRing1; property: "scale"; from: 0.25; to: root.arcadeFx ? 3.1 : 2.6; duration: 800; easing.type: Easing.OutCubic }
+            NumberAnimation { target: tetrisRing1; property: "opacity"; from: root.arcadeFx ? 1.0 : 0.85; to: 0; duration: 800 }
+            NumberAnimation { target: tetrisRing2; property: "scale"; from: 0.15; to: root.arcadeFx ? 2.0 : 1.7; duration: 1050 }
+            NumberAnimation { target: tetrisRing2; property: "opacity"; from: root.arcadeFx ? 0.85 : 0.7; to: 0; duration: 1050 }
         }
         onStopped: {
             tetrisRing1.visible = false
@@ -1392,7 +1393,7 @@ ApplicationWindow {
         }
         if (linesCleared === 3) {
             for (var i = 0; i < clearedRows.length; i++)
-                debrisBurst.burst(7, gameBoard.width / 2,
+                debrisBurst.burst(arcadeFx ? 14 : 7, gameBoard.width / 2,
                                   clearedRows[i] * blockSize + blockSize / 2)
         }
     }
@@ -2566,7 +2567,8 @@ ApplicationWindow {
                 styleColor: "#000000"
             }
 
-            // B2B 待命角标：上一次消行为四消，×1.5 加成待命（连击 ≥2 时由燃烧边框表达）
+            // B2B 待命角标：上一次消行为四消，×1.5 加成待命（连击 ≥2 时由燃烧边框表达）。
+            // 街机档角标脉冲闪烁（特效加回来有过之无不及）；治愈/护眼静态
             Rectangle {
                 visible: b2bActive && comboStreak < 2 && !isGameOver
                 anchors.top: parent.top
@@ -2579,6 +2581,14 @@ ApplicationWindow {
                 color: "#E6141408"
                 border.color: "#ffd95a"
                 border.width: 1
+                opacity: arcadeFx ? 0.55 : 1.0
+
+                SequentialAnimation on opacity {
+                    running: arcadeFx && b2bActive && comboStreak < 2 && visible && !isPaused
+                    loops: Animation.Infinite
+                    NumberAnimation { to: 1.0; duration: 260; easing.type: Easing.OutQuad }
+                    NumberAnimation { to: 0.45; duration: 260; easing.type: Easing.InQuad }
+                }
                 Text {
                     id: b2bTagText
                     anchors.centerIn: parent
@@ -3082,14 +3092,14 @@ ApplicationWindow {
                 SequentialAnimation on opacity {
                     running: comboStreak >= 2 && !isPaused && !calmFx
                     loops: Animation.Infinite
-                    // 治愈档呼吸幅度减半（0.82↔0.58）降低闪烁刺激；街机保持原幅度
+                    // 治愈档呼吸幅度减半（0.82↔0.58）降低闪烁刺激；街机满幅快摆（1.0↔0.25）
                     NumberAnimation {
-                        to: zenFx ? 0.82 : 0.95
+                        to: zenFx ? 0.82 : 1.0
                         duration: Math.round((comboStreak >= 7 ? 160 : comboStreak >= 4 ? 260 : 420) * fxBreathScale)
                         easing.type: Easing.OutQuad
                     }
                     NumberAnimation {
-                        to: zenFx ? 0.58 : 0.35
+                        to: zenFx ? 0.58 : 0.25
                         duration: Math.round((comboStreak >= 7 ? 160 : comboStreak >= 4 ? 260 : 420) * fxBreathScale)
                         easing.type: Easing.InQuad
                     }
