@@ -3856,7 +3856,15 @@ ApplicationWindow {
                                 playerName = t
                                 // 输名字即自动上榜本局成绩（真实 lines/time，
                                 // 比暂停面板 uploadBest 的 0行/5秒补录更准；重复提交服务端幂等）
-                                if (scoreTarget > 0) submitScore()
+                                if (scoreTarget > 0) {
+                                    submitScore()
+                                    // 每日局补名字的场合：此前每日榜因无名被跳过，这里补交
+                                    if (dailyMode) {
+                                        apiPost("daily/score", { uid: playerUid, name: playerName, score: scoreTarget,
+                                                                 lines: totalClearedLines, time: playSeconds }, function () { })
+                                        refreshDailyAchievements()
+                                    }
+                                }
                             }
                         }
                     }
@@ -4910,20 +4918,25 @@ ApplicationWindow {
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
                 clip: true
+            }
 
-                // 底部渐隐：提示「下面还有设置项」可下滑
-                Rectangle {
-                    anchors.bottom: parent.bottom
-                    width: parent.width
-                    height: 40
-                    enabled: false
-                    visible: settingsFlick.contentHeight > settingsFlick.height + 4
-                             && settingsFlick.contentY + settingsFlick.height < settingsFlick.contentHeight - 4
-                    gradient: Gradient {
-                        GradientStop { position: 0.0; color: "#002a2a2a" }
-                        GradientStop { position: 1.0; color: "#ff2a2a2a" }
-                    }
+            // 底部渐隐：提示「下面还有设置项」可下滑。
+            // 必须是 Flickable 的兄弟节点——Flickable 子项挂在 contentItem 上会随内容滚动
+            Rectangle {
+                anchors.bottom: settingsPanel.bottom
+                anchors.bottomMargin: 16
+                anchors.left: settingsPanel.left
+                anchors.leftMargin: 12
+                width: settingsPanel.width - 24
+                height: 40
+                enabled: false
+                visible: settingsFlick.contentHeight > settingsFlick.height + 4
+                         && settingsFlick.contentY + settingsFlick.height < settingsFlick.contentHeight - 4
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#002a2a2a" }
+                    GradientStop { position: 1.0; color: "#ff2a2a2a" }
                 }
+            }
 
             Column {
                 id: settingsColumn
