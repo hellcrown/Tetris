@@ -1354,25 +1354,29 @@ ApplicationWindow {
     property string gameGrade: ""          // 本局评分档位（gameOver 时算好）
     property int gameScore100: 0           // 百分制评分（角标显示用）
     function computeGrade() {
-        // 1) 消行效率：四消权重大（参考曲线：38行≈满分档）
-        var eff = Math.min(40, totalClearedLines * 40 / 38)
-        // 2) 存活：10 分钟满档，按对数曲线增长（短命局拿不到几个分）
-        var surv = Math.min(30, Math.round(30 * Math.log10(1 + playSeconds / 20) / Math.log10(31)))
-        // 3) 高光：徽章/四消/B2B/连击/大分
+        // 严苛版评分（用户定稿）：
+        // 1) 消行效率：60 行才满 40（原 38 行即满，过于宽松）
+        var eff = Math.min(40, totalClearedLines * 40 / 60)
+        // 2) 存活：15 分钟满 30（原 10 分钟），对数曲线
+        var surv = Math.min(30, Math.round(30 * Math.log10(1 + playSeconds / 20) / Math.log10(46)))
+        // 3) 高光：整体减半且只认硬通货——四消按 2 分/次需 4 次、B2B 2 分/次需 2 次、
+        //    连击只从 x5 起计分（x15 满）、分数档提到 8k/15k/25k
         var hl = 0
-        if (gameBadges.indexOf("clutch") !== -1) hl += 10
-        if (gameBadges.indexOf("flow") !== -1) hl += 8
-        if (gameBadges.indexOf("grandSlam") !== -1) hl += 8
-        if (gameBadges.indexOf("precise") !== -1) hl += 4
-        hl += Math.min(10, tetrisCount * 4)
-        hl += Math.min(6, b2bCount * 3)
-        if (maxCombo >= 10) hl += 6
-        else if (maxCombo >= 5) hl += 4
-        else if (maxCombo >= 3) hl += 2
-        if (scoreTarget >= 10000) hl += 4
+        if (gameBadges.indexOf("clutch") !== -1) hl += 6
+        if (gameBadges.indexOf("flow") !== -1) hl += 5
+        if (gameBadges.indexOf("grandSlam") !== -1) hl += 5
+        if (gameBadges.indexOf("precise") !== -1) hl += 2
+        hl += Math.min(8, tetrisCount * 2)
+        hl += Math.min(4, b2bCount * 2)
+        if (maxCombo >= 15) hl += 5
+        else if (maxCombo >= 10) hl += 3
+        else if (maxCombo >= 5) hl += 1
+        if (scoreTarget >= 25000) hl += 5
+        else if (scoreTarget >= 15000) hl += 3
+        else if (scoreTarget >= 8000) hl += 1
+        hl = Math.min(30, hl)
         var total = Math.round(Math.min(100, eff + surv + hl))
-        // 满分硬门槛：新计分体系（四消120）下，1.5 万分以下不允许 100 分——
-        // 慢节奏低分局靠三组件刷满分的漏洞在此封死（用户定稿）
+        // 满分硬门槛：1.5 万分以下不允许 100 分（低分局三组件刷满分在此封死）
         if (scoreTarget < 15000) total = Math.min(total, 99)
         gameScore100 = total
         gameGrade = total >= 90 ? "A+" : total >= 78 ? "A" : total >= 65 ? "B" : total >= 52 ? "C" : total >= 38 ? "D" : total >= 20 ? "E" : "F"
