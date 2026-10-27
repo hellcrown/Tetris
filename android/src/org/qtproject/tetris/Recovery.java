@@ -66,6 +66,23 @@ public class Recovery {
         h.removeCallbacksAndMessages(null);
     }
 
+    // 卓易通定向：解锁回前台时前台重建一次 Activity——效果等同用户手动点图标重开
+    //（实测手动重开必拿健康 Surface），用于「帧在跳、屏是黑」这种看门狗检测不到的表现
+    public static void recreate(Context c) {
+        Activity a = (Activity) c;
+        if (a == null || a.isFinishing())
+            return;
+        appendLog("[Recovery] 卓易通解锁重建 Activity（前台重建拿新 Surface）");
+        try {
+            Intent i = new Intent(a, a.getClass());
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            a.startActivity(i);
+            a.finish();
+        } catch (Exception e) {
+            appendLog("[Recovery] 重建失败: " + e);
+        }
+    }
+
     // 检查点（3s 非致命=重开 Activity / 8s 致命=杀进程+闹钟拉起）：
     // 近 1.5 秒内仍在出帧 = 渲染健康，解除兜底；否则按级别恢复
     private static void step(boolean fatal) {

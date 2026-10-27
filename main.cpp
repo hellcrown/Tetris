@@ -592,6 +592,18 @@ int main(int argc, char *argv[])
     QObject::connect(&app, &QGuiApplication::applicationStateChanged, &app, [](Qt::ApplicationState s) {
         qInfo() << "[App] 状态 →" << s;
 #ifdef Q_OS_ANDROID
+        // 卓易通黑屏定向：帧在跳、屏是黑的表现看门狗检测不到（渲染健康），
+        // 华为设备上解锁（挂起≥3s 后回前台）时前台重建一次 Activity = 替用户做一次
+        // 手动重开（实测必拿健康 Surface），代价是每次解锁闪一下
+        static bool s_isHuawei = [] {
+            const QJniObject mfg = QJniObject::getStaticObjectField(
+                "android/os/Build", "MANUFACTURER", "Ljava/lang/String;");
+            const QString m = mfg.isValid() ? mfg.toString().toUpper() : QString();
+            return m.contains(QLatin1String("HUAWEI")) || m.contains(QLatin1String("HONOR"));
+        }();
+        static qint64 s_suspendedAt = 0;
+        if (s == Qt::ApplicationSuspended)
+            s_suspendedAt = QDateTime::currentMSecsSinceEpoch();
         // 已有渲染帧才武装（冷启动首帧未出前不误杀）
         if (s == Qt::ApplicationActive) {
             const QJniObject activity = QNativeInterface::QAndroidApplication::context();
@@ -602,6 +614,20 @@ int main(int argc, char *argv[])
             if (s_mainWin) {
                 for (int delayMs : {150, 600, 1500, 3000})
                     QTimer::singleShot(delayMs, s_mainWin, [] { s_mainWin->requestUpdate(); });
+            }
+            const bool longSuspend = s_isHuawei && s_suspendedAt != 0
+                    && QDateTime::currentMSecsSinceEpoch() - s_suspendedAt >= 3000;
+            s_suspendedAt = 0;
+            if (longSuspend) {
+                QTimer::singleShot(400, s_mainWin, [] {
+                    const QJniObject activity = QNativeInterface::QAndroidApplication::context();
+                    if (!activity.isValid())
+                        return;
+                    qInfo() << "[Recovery] 卓易通解锁重建 Activity";
+                    QJniObject::callStaticMethod<void>(
+                        "org/qtproject/tetris/Recovery", "recreate",
+                        "(Landroid/content/Context;)V", activity.object());
+                });
             }
         } else {
             QJniObject::callStaticMethod<void>(
