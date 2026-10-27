@@ -4918,23 +4918,7 @@ ApplicationWindow {
                 boundsBehavior: Flickable.StopAtBounds
                 flickableDirection: Flickable.VerticalFlick
                 clip: true
-            }
 
-            // 底部渐隐：提示「下面还有设置项」可下滑。
-            // 必须是 Flickable 的兄弟节点——Flickable 子项挂在 contentItem 上会随内容滚动
-            Rectangle {
-                anchors.bottom: settingsPanel.bottom
-                anchors.bottomMargin: 16
-                anchors.left: settingsPanel.left
-                anchors.leftMargin: 12
-                width: settingsPanel.width - 24
-                height: 40
-                enabled: false
-                visible: settingsFlick.contentHeight > settingsFlick.height + 4
-                         && settingsFlick.contentY + settingsFlick.height < settingsFlick.contentHeight - 4
-                gradient: Gradient {
-                    GradientStop { position: 0.0; color: "#002a2a2a" }
-                    GradientStop { position: 1.0; color: "#ff2a2a2a" }
                 }
             }
 
@@ -5359,6 +5343,21 @@ ApplicationWindow {
                     horizontalAlignment: Text.AlignHCenter
                     anchors.horizontalCenter: parent.horizontalCenter
                 }
+            // 底部渐隐：提示「下面还有设置项」可下滑。
+            // 必须是 Flickable 的兄弟节点——Flickable 子项挂在 contentItem 上会随内容滚动
+            Rectangle {
+                anchors.bottom: settingsPanel.bottom
+                anchors.bottomMargin: 16
+                anchors.left: settingsPanel.left
+                anchors.leftMargin: 12
+                width: settingsPanel.width - 24
+                height: 40
+                enabled: false
+                visible: settingsFlick.contentHeight > settingsFlick.height + 4
+                         && settingsFlick.contentY + settingsFlick.height < settingsFlick.contentHeight - 4
+                gradient: Gradient {
+                    GradientStop { position: 0.0; color: "#002a2a2a" }
+                    GradientStop { position: 1.0; color: "#ff2a2a2a" }
             }
             }
         }
