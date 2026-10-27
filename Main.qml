@@ -1233,7 +1233,7 @@ ApplicationWindow {
         // 摆盘期间连击必断，四消实际发生在低连击；120 保证四消@x1(120) > 单消@x8(80)
         if (linesCleared === 1) return 10
         if (linesCleared === 2) return 30
-        if (linesCleared === 3) return 50
+        if (linesCleared === 3) return 60
         if (linesCleared >= 4) return 120
         return 0
     }
@@ -1355,12 +1355,12 @@ ApplicationWindow {
     property int gameScore100: 0           // 百分制评分（角标显示用）
     function computeGrade() {
         // 严苛版评分（用户定稿）：
-        // 1) 消行效率：60 行才满 40（原 38 行即满，过于宽松）
-        var eff = Math.min(40, totalClearedLines * 40 / 60)
+        // 1) 消行效率：非线性（平方根）曲线——中段和高段递减明显，144 行才满 40
+        var eff = Math.min(40, Math.round(40 * Math.sqrt(totalClearedLines) / 12))
         // 2) 存活：15 分钟满 30（原 10 分钟），对数曲线
         var surv = Math.min(30, Math.round(30 * Math.log10(1 + playSeconds / 20) / Math.log10(46)))
         // 3) 高光：整体减半且只认硬通货——四消按 2 分/次需 4 次、B2B 2 分/次需 2 次、
-        //    连击只从 x5 起计分（x15 满）、分数档提到 8k/15k/25k
+        //    连击只从 x5 起计分（x15 满）、分数档 15k/30k/50k（高分段同样严苛）
         var hl = 0
         if (gameBadges.indexOf("clutch") !== -1) hl += 6
         if (gameBadges.indexOf("flow") !== -1) hl += 5
@@ -1371,9 +1371,9 @@ ApplicationWindow {
         if (maxCombo >= 15) hl += 5
         else if (maxCombo >= 10) hl += 3
         else if (maxCombo >= 5) hl += 1
-        if (scoreTarget >= 25000) hl += 5
-        else if (scoreTarget >= 15000) hl += 3
-        else if (scoreTarget >= 8000) hl += 1
+        if (scoreTarget >= 50000) hl += 5
+        else if (scoreTarget >= 30000) hl += 3
+        else if (scoreTarget >= 15000) hl += 1
         hl = Math.min(30, hl)
         var total = Math.round(Math.min(100, eff + surv + hl))
         // 满分硬门槛：1.5 万分以下不允许 100 分（低分局三组件刷满分在此封死）
