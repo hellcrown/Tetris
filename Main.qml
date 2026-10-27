@@ -19,7 +19,7 @@ ApplicationWindow {
     readonly property int blockSize: 26  // 每个方块的像素大小
     readonly property int margin: 30
     readonly property int baseDropInterval: 800
-    readonly property int minDropInterval: 40   // 速度天花板：极速 = 40ms/格 ≈ 25 格/秒，累计消行 109 行到达（原 30ms 过快调慢）
+    readonly property int minDropInterval: 65   // 速度天花板：65ms/格 ≈ 15.4 格/秒，恰好累计消行 105 行到达（用户定稿：40ms 仍太快）
     readonly property int dropAccelerationPerLine: 7
     property int settleAccelMs: 60      // 落块物理基准：1 格自由落体耗时，t = k·√h（h 单位：格）
 
@@ -1371,6 +1371,9 @@ ApplicationWindow {
         else if (maxCombo >= 3) hl += 2
         if (scoreTarget >= 10000) hl += 4
         var total = Math.round(Math.min(100, eff + surv + hl))
+        // 满分硬门槛：新计分体系（四消120）下，1.5 万分以下不允许 100 分——
+        // 慢节奏低分局靠三组件刷满分的漏洞在此封死（用户定稿）
+        if (scoreTarget < 15000) total = Math.min(total, 99)
         gameScore100 = total
         gameGrade = total >= 90 ? "A+" : total >= 78 ? "A" : total >= 65 ? "B" : total >= 52 ? "C" : total >= 38 ? "D" : total >= 20 ? "E" : "F"
     }
