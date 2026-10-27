@@ -105,9 +105,12 @@ function readBody(req, cb) {
 // APK 在线更新：apk/ 目录下放 tetris-latest.apk + version.json（code/name/file）
 const APK_DIR = path.join(__dirname, 'apk')
 
-// 每日挑战：种子由日期决定（全服同一天同一序列）；成绩按日存 data-daily.json
+// 每日挑战：种子由日期决定（全服同一天同一序列）；成绩按日存 data-daily.json；
+// 跨天时前一天第一名归档进 winners.json（冠军称号/成就数据源）
 const DAILY_FILE = path.join(__dirname, 'data-daily.json')
+const WINNERS_FILE = path.join(__dirname, 'winners.json')
 let dailyStore = { day: '', entries: [] } // entries: [{uid,name,score,lines,time,ts}]
+let winners = [] // [{date, uid, name, score}]
 
 function todayStr() {
   const d = new Date()
@@ -118,15 +121,40 @@ function dailySeed() {
   return Number(todayStr().replace(/-/g, '')) % 2147483647
 }
 function loadDaily() {
+  // 无条件采用文件内容（哪怕是昨天/更早的）：跨天归档由 rollDailyIfNeeded 统一处理，
+  // 若此处按"等于今天"过滤，凌晨重启会把昨天的榜和冠军一起丢掉
   try {
     const d = JSON.parse(fs.readFileSync(DAILY_FILE, 'utf8'))
-    if (d.day === todayStr()) dailyStore = d
+    if (d && Array.isArray(d.entries)) dailyStore = d
   } catch (e) { }
 }
 function saveDaily() {
   const tmp = DAILY_FILE + '.tmp'
   fs.writeFileSync(tmp, JSON.stringify(dailyStore))
   fs.renameSync(tmp, DAILY_FILE)
+}
+function loadWinners() {
+  try {
+    const w = JSON.parse(fs.readFileSync(WINNERS_FILE, 'utf8'))
+    if (Array.isArray(w)) winners = w
+  } catch (e) { }
+}
+function saveWinners() {
+  const tmp = WINNERS_FILE + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(winners))
+  fs.renameSync(tmp, WINNERS_FILE)
+}
+// 跨天归档：前一天第一名记入 winners（幂等：同日只归档一次），然后重置当日榜
+function rollDailyIfNeeded() {
+  const today = todayStr()
+  if (dailyStore.day && dailyStore.day !== today && dailyStore.entries.length > 0) {
+    const top = dailyStore.entries.slice().sort((a, b) => b.score - a.score || a.time - b.time)[0]
+    if (top && !winners.some(w => w.date === dailyStore.day)) {
+      winners.push({ date: dailyStore.day, uid: top.uid, name: top.name, score: top.score })
+      saveWinners()
+    }
+  }
+  if (dailyStore.day !== today) dailyStore = { day: today, entries: [] }
 }
 
 const server = http.createServer((req, res) => {
@@ -184,11 +212,13 @@ const server = http.createServer((req, res) => {
     return send(res, 200, { ok: true, players: entries.length })
   }
 
-  // 每日挑战：种子 / 成绩提交 / 今日榜
+  // 每日挑战：种子 / 成绩提交 / 今日榜 / 冠军档案
   if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/daily') {
-    if (dailyStore.day !== todayStr()) loadDaily()
-    if (dailyStore.day !== todayStr()) dailyStore = { day: todayStr(), entries: [] }
-    return send(res, 200, { ok: true, date: todayStr(), seed: dailySeed(), players: dailyStore.entries.length })
+    rollDailyIfNeeded()
+    const y = new Date(Date.now() - 86400000)
+    const yesterday = y.getFullYear() + '-' + String(y.getMonth() + 1).padStart(2, '0') + '-' + String(y.getDate()).padStart(2, '0')
+    const winner = winners.find(w => w.date === yesterday) || null
+    return send(res, 200, { ok: true, date: todayStr(), seed: dailySeed(), players: dailyStore.entries.length, winner: winner })
   }
   if (req.method === 'POST' && url === '/tetris/api/daily/score') {
     if (rateLimited(ip)) return send(res, 429, { ok: false, error: 'TOO_FAST' })
@@ -201,7 +231,7 @@ const server = http.createServer((req, res) => {
       const time = Math.floor(Number(body.time))
       if (!uid || name.length < 1) return send(res, 400, { ok: false, error: 'BAD_INPUT' })
       if (!(score >= 0 && score <= 5000000)) return send(res, 400, { ok: false, error: 'BAD_SCORE' })
-      if (dailyStore.day !== todayStr()) dailyStore = { day: todayStr(), entries: [] }
+      rollDailyIfNeeded()
       const ex = dailyStore.entries.find(e => e.uid === uid)
       if (ex) {
         if (score > ex.score) {
@@ -218,13 +248,15 @@ const server = http.createServer((req, res) => {
     })
   }
   if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/daily/top') {
-    if (dailyStore.day !== todayStr()) loadDaily()
-    if (dailyStore.day !== todayStr()) dailyStore = { day: todayStr(), entries: [] }
+    rollDailyIfNeeded()
     const top = dailyStore.entries.slice()
       .sort((a, b) => b.score - a.score || a.time - b.time)
       .slice(0, 10)
-      .map((e, i) => ({ rank: i + 1, name: e.name, score: e.score, lines: e.lines, time: e.time }))
+      .map((e, i) => ({ rank: i + 1, uid: e.uid, name: e.name, score: e.score, lines: e.lines, time: e.time }))
     return send(res, 200, { ok: true, date: todayStr(), total: dailyStore.entries.length, top })
+  }
+  if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/winners') {
+    return send(res, 200, { ok: true, winners: winners })
   }
 
   // 下载页（推广落地页：下载按钮 + 玩法亮点 + 毒舌示例）
@@ -333,4 +365,5 @@ padding:16px;border-radius:14px;margin:18px 0 8px}
 
 load()
 loadDaily()
+loadWinners()
 server.listen(PORT, '127.0.0.1', () => console.log('tetris-leaderboard on 127.0.0.1:' + PORT))

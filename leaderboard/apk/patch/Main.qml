@@ -329,6 +329,7 @@ ApplicationWindow {
     property bool dailyMode: false
     property int dailySeed: 0
     property int dailyRngState: 0
+    property var yesterdayWinner: null    // {uid,name,score}：昨天的每日挑战冠军（👑 称号展示用）
     function mulberry32() {
         dailyRngState = (dailyRngState + 0x6D2B79F5) | 0
         var t = dailyRngState
@@ -840,6 +841,11 @@ ApplicationWindow {
         }
         startGame()
         updateBanner.checkStart()   // 启动时静默检查在线更新
+        // 昨日冠军 + 冠军成就链：uid 就绪后异步拉取（失败静默，纯展示/成就用途）
+        apiGet("daily", function (ok, data) {
+            if (ok && data) yesterdayWinner = data.winner || null
+        })
+        refreshDailyAchievements()
 
         // 阶段验收演示模式（--demo 场景 --shots 目录 --preset 预设）：仅开发用
         if (demoPreset === "rm") {
@@ -1174,6 +1180,19 @@ ApplicationWindow {
     // 时回退本地日期种子，避免沿用昨天的旧种子导致序列与他人不一致
     property int dailyCountdown: -1
     property bool dailySeedValid: false
+    // 冠军成就链：从服务器冠军档案统计我的夺冠次数，达阶即解锁（里程碑终身一次）
+    function refreshDailyAchievements() {
+        if (playerUid === "") return
+        apiGet("winners", function (ok, data) {
+            if (!ok || !data || !data.winners) return
+            var n = 0
+            for (var i = 0; i < data.winners.length; i++)
+                if (data.winners[i].uid === playerUid) n++
+            if (n >= 1) earnBadge("daily1")
+            if (n >= 5) earnBadge("daily2")
+            if (n >= 20) earnBadge("daily3")
+        })
+    }
     function startDailyFlow() {
         if (dailyCountdown >= 0) return   // 倒计时中防连点
         // 游戏结束态也可直达每日挑战：applyDailyStart→startGame 会完整重置对局
@@ -1305,7 +1324,10 @@ ApplicationWindow {
         "best10k_3":  { icon: "👑", name: "万分俱乐部 III", hint: "历史最高分 ≥ 50000", milestone: true },
         "marathon1":  { icon: "🕰️", name: "马拉松 I", hint: "累计游玩时长 ≥ 2 小时", milestone: true },
         "marathon2":  { icon: "🕰️", name: "马拉松 II", hint: "累计游玩时长 ≥ 5 小时", milestone: true },
-        "marathon3":  { icon: "🕰️", name: "马拉松 III", hint: "累计游玩时长 ≥ 10 小时", milestone: true }
+        "marathon3":  { icon: "🕰️", name: "马拉松 III", hint: "累计游玩时长 ≥ 10 小时", milestone: true },
+        "daily1":     { icon: "🏆", name: "每日冠军 I", hint: "夺得 1 次每日挑战冠军", milestone: true },
+        "daily2":     { icon: "🏆", name: "每日冠军 II", hint: "夺得 5 次每日挑战冠军", milestone: true },
+        "daily3":     { icon: "🏆", name: "每日冠军 III", hint: "夺得 20 次每日挑战冠军", milestone: true }
     })
     // 展示顺序：操作技巧 → 单局（含成长链）→ 生涯成长链
     readonly property var badgeOrder: [
@@ -1316,7 +1338,8 @@ ApplicationWindow {
         "veteran1", "veteran2", "veteran3",
         "lines100_1", "lines100_2", "lines100_3",
         "best10k_1", "best10k_2", "best10k_3",
-        "marathon1", "marathon2", "marathon3"
+        "marathon1", "marathon2", "marathon3",
+        "daily1", "daily2", "daily3"
     ]
     property bool surviveArmed: false     // 本局曾进入危险三段（逆风翻盘判定用）
     function earnBadge(id) {
@@ -2310,6 +2333,8 @@ ApplicationWindow {
         if (dailyMode && playerName !== "" && scoreTarget > 0) {
             apiPost("daily/score", { uid: playerUid, name: playerName, score: scoreTarget,
                                      lines: totalClearedLines, time: playSeconds }, function () { })
+            // 冠军档案次日才归档：提交后拉一次冠军榜，若已跨天则立即结算成就
+            refreshDailyAchievements()
         }
         if (bestScore >= 10000) earnBadge("best10k_1")
         if (bestScore >= 20000) earnBadge("best10k_2")
@@ -4172,7 +4197,14 @@ ApplicationWindow {
                                 color: modelData.uid === playerUid ? "#7fd6a4" : "white"
                                 font.pixelSize: 13
                                 elide: Text.ElideRight
-                                width: 108
+                                width: 96
+                            }
+
+                            // 昨日冠军皇冠：任何人夺魁，次日全天头顶皇冠展示
+                            Text {
+                                text: yesterdayWinner && modelData.uid === yesterdayWinner.uid ? "👑" : ""
+                                font.pixelSize: 13
+                                width: 24
                             }
 
                             Text {
