@@ -4891,36 +4891,33 @@ ApplicationWindow {
             }
         }
 
-        Rectangle {
-            id: settingsPanel
-            width: 290
-            // 高度跟随屏幕：矮屏（16:9 手机）上原来的固定 600 会顶到屏幕边缘
-            height: Math.min(620, parent.height - 36)
-            radius: 14
-            color: "#2a2a2a"
-            border.width: 1
-            border.color: "#666666"
-            anchors.centerIn: parent
+    Rectangle {
+        id: settingsPanel
+        width: 290
+        // 高度跟随屏幕：矮屏（16:9 手机）上原来的固定 600 会顶到屏幕边缘
+        height: Math.min(620, parent.height - 36)
+        radius: 14
+        color: "#2a2a2a"
+        border.width: 1
+        border.color: "#666666"
+        anchors.centerIn: parent
 
-            // 吞掉面板内部的空白点击，防止误触关闭
-            MouseArea {
-                anchors.fill: parent
-            }
+        // 吞掉面板内部的空白点击，防止误触关闭
+        MouseArea {
+            anchors.fill: parent
+        }
 
-            // 选项多了以后必须能滚：矮屏 + 新手势提示行加起来会超出一屏
-            Flickable {
-                id: settingsFlick
-                anchors.fill: parent
-                anchors.margins: 12
-                anchors.bottomMargin: 16
-                contentWidth: width
-                contentHeight: settingsColumn.height
-                boundsBehavior: Flickable.StopAtBounds
-                flickableDirection: Flickable.VerticalFlick
-                clip: true
-
-                }
-            }
+        // 选项多了以后必须能滚：矮屏 + 新手势提示行加起来会超出一屏
+        Flickable {
+            id: settingsFlick
+            anchors.fill: parent
+            anchors.margins: 12
+            anchors.bottomMargin: 16
+            contentWidth: width
+            contentHeight: settingsColumn.height
+            boundsBehavior: Flickable.StopAtBounds
+            flickableDirection: Flickable.VerticalFlick
+            clip: true
 
             Column {
                 id: settingsColumn
@@ -5361,6 +5358,23 @@ ApplicationWindow {
             }
             }
         }
+        }
+
+        // 底部渐隐：提示「下面还有设置项」可下滑（视口层兄弟节点，不随内容滚动）
+        Rectangle {
+            anchors.bottom: settingsFlick.bottom
+            anchors.horizontalCenter: settingsFlick.horizontalCenter
+            width: settingsFlick.width
+            height: 40
+            enabled: false
+            visible: settingsFlick.contentHeight > settingsFlick.height + 4
+                     && settingsFlick.contentY + settingsFlick.height < settingsFlick.contentHeight - 4
+            gradient: Gradient {
+                GradientStop { position: 0.0; color: "#002a2a2a" }
+                GradientStop { position: 1.0; color: "#ff2a2a2a" }
+            }
+        }
+    }
     }
 
     // 在线更新横幅（服务器 version.json 比对出新版时出现，顶部不挡棋盘）
