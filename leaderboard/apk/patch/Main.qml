@@ -1175,8 +1175,8 @@ ApplicationWindow {
     property int dailyCountdown: -1
     property bool dailySeedValid: false
     function startDailyFlow() {
-        if (dailyCountdown >= 0) return
-        if (isGameOver) return
+        if (dailyCountdown >= 0) return   // 倒计时中防连点
+        // 游戏结束态也可直达每日挑战：applyDailyStart→startGame 会完整重置对局
         dailySeedValid = false
         pauseGame()
         apiGet("daily", function (ok, data) {
