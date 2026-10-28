@@ -1224,6 +1224,9 @@ ApplicationWindow {
         repeat: true
         running: dailyCountdown >= 0
         onTriggered: {
+            // 锁屏/后台期间冻结倒计时：若放行，applyDailyStart→startGame 会在锁屏下
+            // 开局（方块盲落、用时照计）。回前台后每秒重查，自然续走
+            if (Qt.application.state !== Qt.ApplicationActive) return
             dailyCountdown--
             if (dailyCountdown < 0)
                 applyDailyStart()
@@ -1440,12 +1443,12 @@ ApplicationWindow {
         if (!pool || pool.length === 0) return ""
         return pool[Math.floor(Math.random() * pool.length)]
     }
-    // 每日挑战倒计时全屏层（z 高于所有菜单）
+    // 每日挑战倒计时全屏层（z 高于所有菜单与更新横幅）
     Rectangle {
         anchors.fill: parent
         visible: dailyCountdown >= 0
         color: "#D2000000"
-        z: 70
+        z: 75
 
         MouseArea { anchors.fill: parent }   // 吞掉点击，倒计时期间不可操作
 
