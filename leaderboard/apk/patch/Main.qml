@@ -5408,7 +5408,8 @@ ApplicationWindow {
         }
         function checkStart() {
             if (Qt.platform.os !== "android") return
-            apiGet("version?cur=" + clientVersionCode, function (ok, data) {
+            // uid 随版本检查上报（服务器端日活心跳）
+            apiGet("version?cur=" + clientVersionCode + "&uid=" + playerUid, function (ok, data) {
                 if (ok && data && data.file && data.code > clientVersionCode) {
                     updateBanner.file = data.file
                     updateBanner.newName = data.name

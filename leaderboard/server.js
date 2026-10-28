@@ -157,6 +157,39 @@ function rollDailyIfNeeded() {
   if (dailyStore.day !== today) dailyStore = { day: today, entries: [] }
 }
 
+// ---- 日活统计：客户端每次启动的版本检查带 uid（天然活跃心跳），按日聚合 ----
+const STATS_FILE = path.join(__dirname, 'stats.json')
+let statsStore = { dau: {} } // dau: { 'YYYY-MM-DD': { uids: [], ips: [], launches: n } }
+
+function loadStats() {
+  try {
+    const s = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8'))
+    if (s && s.dau) statsStore = s
+  } catch (e) { }
+}
+function saveStats() {
+  const tmp = STATS_FILE + '.tmp'
+  fs.writeFileSync(tmp, JSON.stringify(statsStore))
+  fs.renameSync(tmp, STATS_FILE)
+}
+// uid 可识别用户按 uid 去重；匿名设备按 IP 近似。DAU = max(两者)（识别用户是 IP 的子集）
+function recordActivity(ip, uid) {
+  const day = todayStr()
+  if (!statsStore.dau[day]) statsStore.dau[day] = { uids: [], ips: [], launches: 0 }
+  const d = statsStore.dau[day]
+  if (typeof uid === 'string' && /^[A-Za-z0-9-]{8,64}$/.test(uid) && !d.uids.includes(uid))
+    d.uids.push(uid)
+  if (ip && !d.ips.includes(ip)) d.ips.push(ip)
+  d.launches++
+  const keys = Object.keys(statsStore.dau).sort()   // 只留 30 天
+  while (keys.length > 30) delete statsStore.dau[keys.shift()]
+  saveStats()
+}
+function dauNumber(day) {
+  const d = statsStore.dau[day]
+  return d ? Math.max(d.uids.length, d.ips.length) : 0
+}
+
 const server = http.createServer((req, res) => {
   const xff = String(req.headers['x-forwarded-for'] || '')
   const ip = (xff.split(',').pop().trim()) || req.socket.remoteAddress || '?'
@@ -183,6 +216,9 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/version') {
     try {
+      // 日活心跳：每次启动的版本检查（uid 可选参数）
+      const uq = /[?&]uid=([A-Za-z0-9-]{8,64})/.exec(url)
+      recordActivity(ip, uq ? uq[1] : '')
       const meta = JSON.parse(fs.readFileSync(path.join(APK_DIR, 'version.json'), 'utf8'))
       if (!meta.size && meta.file) {
         // size 缺失/为 0 时按 APK 实际体积补：客户端用它免重复下载已缓存的安装包
@@ -257,6 +293,115 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/winners') {
     return send(res, 200, { ok: true, winners: winners })
+  }
+
+  // ---- 数据仪表盘：JSON 数据 + 交互页（30s 自动刷新）----
+  function statsPayload() {
+    rollDailyIfNeeded()
+    const dau = []
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(Date.now() - i * 86400000)
+      const ds = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')
+      const rec = statsStore.dau[ds] || { uids: [], ips: [], launches: 0 }
+      dau.push({ date: ds.slice(5), dau: Math.max(rec.uids.length, rec.ips.length), launches: rec.launches })
+    }
+    const top = entries.slice().sort((a, b) => b.score - a.score || a.time - b.time).slice(0, 10)
+      .map((e, i) => ({ rank: i + 1, name: e.name, score: e.score, lines: e.lines, time: e.time }))
+    const daily = dailyStore.entries.slice().sort((a, b) => b.score - a.score || a.time - b.time).slice(0, 10)
+      .map((e, i) => ({ rank: i + 1, name: e.name, score: e.score, lines: e.lines, time: e.time }))
+    let ver = ''
+    try { ver = JSON.parse(fs.readFileSync(path.join(APK_DIR, 'version.json'), 'utf8')).name || '' } catch (e) { }
+    return {
+      ok: true, today: todayStr(), version: ver, dau,
+      todayDetail: {
+        dau: dauNumber(todayStr()),
+        launches: (statsStore.dau[todayStr()] || {}).launches || 0,
+        players: entries.length, dailyPlayers: dailyStore.entries.length
+      },
+      top, daily,
+      winners: winners.slice(-10).reverse(),
+      now: Date.now()
+    }
+  }
+  if (req.method === 'GET' && url.split('?')[0] === '/tetris/api/stats') {
+    return send(res, 200, statsPayload())
+  }
+  if (req.method === 'GET' && (url.split('?')[0] === '/tetris/stats' || url.split('?')[0] === '/tetris/api/dashboard')) {
+    const html = `<!doctype html><html lang="zh"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>俄罗斯方块 · 数据面板</title>
+<style>
+body{margin:0;background:#12151a;color:#e8e6e0;font-family:system-ui,sans-serif}
+.wrap{max-width:900px;margin:0 auto;padding:22px 16px 60px}
+h1{font-size:20px;margin:0 0 4px}.sub{color:#777;font-size:12px;margin-bottom:18px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-bottom:22px}
+.card{background:#1c2128;border-radius:10px;padding:12px 14px}
+.card b{display:block;font-size:26px;color:#ffd95a}
+.card span{color:#888;font-size:12px}
+h2{font-size:15px;color:#ffd95a;margin:20px 0 8px}
+.bars{display:flex;align-items:flex-end;gap:8px;height:110px;background:#1c2128;border-radius:10px;padding:12px}
+.bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.bar i{width:70%;background:linear-gradient(180deg,#7fd6a4,#2e7d5b);border-radius:4px 4px 0 0;min-height:2px;font-style:normal;position:relative}
+.bar i b{position:absolute;top:-20px;left:50%;transform:translateX(-50%);color:#ffd95a;font-size:12px}
+.bar span{color:#777;font-size:10px;margin-top:6px}
+table{width:100%;border-collapse:collapse;background:#1c2128;border-radius:10px;overflow:hidden;font-size:13px}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #262c34}
+th{color:#888;font-weight:normal;font-size:12px}
+tr:last-child td{border-bottom:none}
+td.r{color:#ffd95a;width:36px}
+.me{color:#7fd6a4}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media(max-width:640px){.cols{grid-template-columns:1fr}}
+.dl{display:block;text-align:center;background:#2e7d5b;color:#fff;text-decoration:none;font-size:16px;font-weight:bold;padding:14px;border-radius:12px;margin-top:8px}
+.empty{color:#666;padding:14px;font-size:13px}
+#tick{color:#555;font-size:11px;float:right}
+</style></head><body><div class="wrap">
+<h1>📊 俄罗斯方块 · 数据面板</h1><div class="sub">blood-table.top · 自动刷新 30s <span id="tick"></span></div>
+<div class="cards">
+<div class="card"><b id="dau">–</b><span>今日日活</span></div>
+<div class="card"><b id="launches">–</b><span>今日启动</span></div>
+<div class="card"><b id="players">–</b><span>总榜玩家</span></div>
+<div class="card"><b id="dailyPlayers">–</b><span>今日挑战</span></div>
+<div class="card"><b id="ver">–</b><span>当前版本</span></div>
+</div>
+<h2>近 7 日日活</h2><div class="bars" id="bars"></div>
+<div class="cols">
+<div><h2>🏆 总榜 TOP10</h2><table id="top"><tr><td class="empty">加载中…</td></tr></table></div>
+<div><h2>⚡ 今日挑战</h2><table id="daily"><tr><td class="empty">加载中…</td></tr></table></div>
+</div>
+<h2>👑 冠军档案（近 10 天）</h2><table id="winners"><tr><td class="empty">加载中…</td></tr></table>
+<h2>📥 安装包</h2>
+<a class="dl" href="/tetris/api/apk/tetris-latest.apk">⬇ 下载 Android 版（v<span id="ver2"></span>）</a>
+</div>
+<script>
+function fmtT(s){if(!s)return'—';const m=Math.floor(s/60),ss=s%60;return m+':'+String(ss).padStart(2,'0')}
+function board(el,rows,name){
+if(!rows||!rows.length){el.innerHTML='<tr><td class="empty">暂无记录</td></tr>';return}
+el.innerHTML='<tr><th>#</th><th>'+name+'</th><th>分数</th><th>行</th><th>用时</th></tr>'+
+rows.map(r=>'<tr><td class="r">'+r.rank+'</td><td>'+r.name+'</td><td>'+r.score+'</td><td>'+r.lines+'</td><td>'+fmtT(r.time)+'</td></tr>').join('')
+}
+async function refresh(){
+try{
+const d=await fetch('/tetris/api/stats').then(r=>r.json())
+dau.textContent=d.todayDetail.dau
+launches.textContent=d.todayDetail.launches
+players.textContent=d.todayDetail.players
+dailyPlayers.textContent=d.todayDetail.dailyPlayers
+ver.textContent=d.version;ver2.textContent=d.version
+const mx=Math.max(1,...d.dau.map(x=>x.dau))
+bars.innerHTML=d.dau.map(x=>'<div class="bar"><i style="height:'+(x.dau/mx*100)+'%"></i><span>'+x.date+'<br>'+x.dau+'人</span></div>').join('')
+board(top,d.top,'玩家')
+board(daily,d.daily,'玩家')
+winners.innerHTML=(d.winners&&d.winners.length)?'<tr><th>日期</th><th>冠军</th><th>分数</th></tr>'+
+d.winners.map(w=>'<tr><td class="r">'+w.date.slice(5)+'</td><td>'+w.name+' 👑</td><td>'+w.score+'</td></tr>').join('')
+:'<tr><td class="empty">还没有冠军档案，今天的第一名就是第一位</td></tr>'
+tick.textContent='· 更新于 '+new Date().toLocaleTimeString('zh-CN')
+}catch(e){tick.textContent='· 刷新失败，稍后重试'}
+}
+refresh();setInterval(refresh,30000)
+</script></body></html>`
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+    return res.end(html)
   }
 
   // 下载页（推广落地页：下载按钮 + 玩法亮点 + 毒舌示例）
@@ -366,4 +511,5 @@ padding:16px;border-radius:14px;margin:18px 0 8px}
 load()
 loadDaily()
 loadWinners()
+loadStats()
 server.listen(PORT, '127.0.0.1', () => console.log('tetris-leaderboard on 127.0.0.1:' + PORT))
