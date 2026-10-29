@@ -1078,6 +1078,13 @@ ApplicationWindow {
                     demoTimer.stop()
                     Qt.quit()
                 }
+            } else if (demoScene === "promo") {
+                // 宣传片拍摄：时间轴状态机 + 25fps 逐帧抓取（详见 promoStages 注释）
+                if (demoStep === 0) {
+                    root.width = 720
+                    root.height = 1560
+                    promoBegin()
+                }
             } else if (demoScene === "gesture") {
                 // 手势模式布局验收：暂存框并排 + 紧凑能量卡 + 棋盘上移
                 isPaused = false
@@ -1095,6 +1102,188 @@ ApplicationWindow {
             demoStep++
         }
     }
+    // ---- 宣传片拍摄模式（TETRIS_DEMO=promo，仅桌面）：时间轴状态机 + 逐帧抓取 ----
+    // 时间轴（秒）：0-2.8 标题卡「但会骂人」/ 2.8-7.2 连击消行 / 7.2-11.5 四消爆发 /
+    // 11.5-16 极限救场 / 16-19.3 每日倒计时 / 19.3-24.4 F↔A+ 毒舌结算 / 24.4-30 尾卡下载址
+    property int promoFrame: 0
+    property real promoElapsed: 0
+    property real promoWall0: 0
+    property string promoTitle: ""
+    property string promoSub: ""
+    property bool promoShowCard: false
+    property string promoQuip: ""        // 结算卡定稿评语（覆盖随机池，保证宣传片确定性）
+    property bool promoRescueArmed: false
+
+    Timer {
+        id: promoClock
+        interval: 100
+        repeat: true
+        running: false
+        property real lastTick: 0
+        onTriggered: {
+            var now = Date.now()
+            if (promoClock.lastTick === 0) promoClock.lastTick = now
+            promoElapsed += Math.min(0.4, (now - promoClock.lastTick) / 1000)   // 墙钟推进，上限防跳
+            promoClock.lastTick = now
+            promoDirect(promoElapsed)
+        }
+    }
+    // 25fps 抓帧：saveShot=grabWindow 同步渲染，动画在两帧间隙照常推进
+    Timer {
+        id: promoCap
+        interval: 40
+        repeat: true
+        running: false
+        onTriggered: {
+            if (shotDir === "") return
+            NativeUpdate.saveShot(shotDir + "/frame_" + ("0000" + promoFrame).slice(-4) + ".jpg")
+            promoFrame++
+        }
+    }
+
+    function promoCard(title, sub, show) {
+        promoTitle = title
+        promoSub = sub
+        promoShowCard = show
+    }
+    function promoBegin() {
+        promoFrame = 0
+        promoElapsed = 0
+        promoWall0 = Date.now()
+        startGame()
+        isPaused = false
+        promoCard("俄罗斯方块", "但是，它会骂人", true)
+        promoClock.restart()
+        promoCap.restart()
+    }
+    function promoDirect(t) {
+        // 幕1：标题卡
+        if (t < 2.4) return
+        if (t < 2.8) { promoCard("", "", false); return }
+        // 幕2：街机连击消行（三连单双三消，火焰边框+能量槽）
+        if (t < 7.2) {
+            if (!promoRescueArmed) { promoRescueArmed = true; promoComboBeat(t) }
+            promoComboBeat(t)
+            return
+        }
+        // 幕3：四消爆发（蓄力→白闪→双冲击环→TETRIS）
+        if (t < 11.5) {
+            if (promoElapsed - 0.1 < 7.2) { demoSetupTetris(); demoFireTetris() }
+            return
+        }
+        // 幕4：极限救场（顶部危险红框+即将失败 → I 落入救场 → 成就toast）
+        if (t < 16.0) {
+            if (promoElapsed - 0.1 < 11.5) {
+                grid = createEmptyGrid()
+                for (var pr = 1; pr < rows; pr++) demoFillRow(pr, "11111111111")
+                comboStreak = 2
+                b2bActive = true
+                refreshGrid()
+                refreshDanger()
+            }
+            if (promoElapsed - 0.1 < 12.4 && t >= 12.4) demoSetI(11, true)
+            if (promoElapsed - 0.1 < 13.6 && t >= 13.6) hardDrop()
+            return
+        }
+        // 幕5：每日挑战倒计时
+        if (t < 19.3) {
+            if (promoElapsed - 0.1 < 16.0) {
+                startGame()
+                isPaused = false
+                dailyCountdown = 3
+                dailyCdPop.restart()
+            }
+            if (t >= 19.2) dailyCountdown = -1
+            return
+        }
+        // 幕6A/6B：F 与 A+ 结算对切
+        if (t < 24.4) {
+            if (promoElapsed - 0.1 < 19.3) {
+                score = 22; scoreTarget = 22; totalClearedLines = 0
+                tetrisCount = 0; maxCombo = 1; newUnlocks = 0
+                playSeconds = 14
+                gameGrade = "F"; gameScore100 = 8
+                promoQuip = "F——Fine，仅指你退场的手速"
+                isGameOver = true
+            }
+            if (promoElapsed - 0.1 < 21.9 && t >= 21.9) {
+                score = 15600; scoreTarget = 15600; totalClearedLines = 46
+                tetrisCount = 4; maxCombo = 12; newUnlocks = 2
+                playSeconds = 640
+                gameGrade = "A+"; gameScore100 = 100
+                promoQuip = "满分？这是台机器在打吧？"
+                gameBadges = ["clutch"]
+            }
+            return
+        }
+        // 幕7：尾卡
+        if (t < 25.0) {
+            isGameOver = false
+            promoQuip = ""
+            promoCard("被骂了就想赢回来", "每日挑战 · 24 枚成就 · 全服排行
+blood-table.top/tetris/api/download", true)
+            return
+        }
+        if (t < 30.0) return
+        // 收工：停表停帧，日志记录实际时长与帧数（供合成校准帧率）
+        promoClock.stop()
+        promoCap.stop()
+        console.warn("[Promo] captured " + promoFrame + " frames in "
+                     + ((Date.now() - promoWall0) / 1000).toFixed(1) + "s wall")
+        Qt.quit()
+    }
+    // 幕2编排：2.6s 一个消行拍（3消→2消→1消），连击递增火焰升级
+    property real promoBeat0: -1
+    function promoComboBeat(t) {
+        var local = t - 2.8
+        var beat = Math.floor(local / 1.45)
+        if (beat === promoBeat0) return
+        promoBeat0 = beat
+        if (beat > 2) return
+        var n = 3 - beat
+        grid = createEmptyGrid()
+        demoSetupLines(n)
+        comboStreak = 3 + beat
+        comboEnergy = 55 + beat * 15
+        hardDrop()
+    }
+
+    // 宣传片标题卡（z:100，最上层；淡入淡出由 Behavior 驱动）
+    Rectangle {
+        visible: demoScene === "promo" && promoShowCard
+        anchors.fill: parent
+        z: 100
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: "#E6101014" }
+            GradientStop { position: 1.0; color: "#F2170d12" }
+        }
+        Column {
+            anchors.centerIn: parent
+            spacing: 26
+            Text {
+                text: promoTitle
+                color: "#f5f1e8"
+                font.pixelSize: 58
+                font.bold: true
+                anchors.horizontalCenter: parent.horizontalCenter
+                style: Text.Outline
+                styleColor: "#000000"
+            }
+            Text {
+                text: promoSub
+                color: "#ffd95a"
+                font.pixelSize: 26
+                anchors.horizontalCenter: parent.horizontalCenter
+                horizontalAlignment: Text.AlignHCenter
+                lineHeight: 1.4
+                style: Text.Outline
+                styleColor: "#000000"
+            }
+        }
+        opacity: promoShowCard ? 1 : 0
+        Behavior on opacity { NumberAnimation { duration: 280 } }
+    }
+
     function demoFireTetris() {
         // 竖 I 已对准 col11 缺口：直接硬落补齐 → 四消三段式演出（勿 rotate，会落到堆顶）
         hardDrop()
@@ -1439,6 +1628,7 @@ ApplicationWindow {
                "系统已经尽力把分打出去了，是方块自己不争气"]
     })
     function gradeQuip() {
+        if (promoQuip !== "") return promoQuip   // 宣传片定稿评语
         var pool = gradeQuips[gameGrade]
         if (!pool || pool.length === 0) return ""
         return pool[Math.floor(Math.random() * pool.length)]
@@ -5408,6 +5598,7 @@ ApplicationWindow {
         }
         function checkStart() {
             if (Qt.platform.os !== "android") return
+            if (demoScene === "promo") return   // 宣传片拍摄中：更新横幅不入镜
             // uid 随版本检查上报（服务器端日活心跳）
             apiGet("version?cur=" + clientVersionCode + "&uid=" + playerUid, function (ok, data) {
                 if (ok && data && data.file && data.code > clientVersionCode) {
